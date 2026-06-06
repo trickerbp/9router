@@ -10,14 +10,14 @@ Run 9Router in a container. Published image: [`decolua/9router`](https://hub.doc
 
 ```bash
 docker run -d \
-  -p 20128:20128 \
+  -p 8080:8080 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   --name 9router \
   decolua/9router:latest
 ```
 
-App listens on port `20128`. Open: http://localhost:20128
+App listens on port `8080`. Open: http://localhost:8080
 
 ## Manage container
 
@@ -54,10 +54,10 @@ Container path: `/app/data/db/data.sqlite`
 
 ```bash
 docker run -d \
-  -p 20128:20128 \
+  -p 8080:8080 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
-  -e PORT=20128 \
+  -e PORT=8080 \
   -e HOSTNAME=0.0.0.0 \
   -e DEBUG=true \
   --name 9router \
@@ -81,7 +81,7 @@ docker rm -f 9router
 ```bash
 cd app && docker build -t 9router .
 
-docker run --rm -p 20128:20128 \
+docker run --rm -p 8080:8080 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   9router

@@ -132,11 +132,11 @@ Common issues and solutions when using 9Router.
 
 ## Connection Refused
 
-**Problem:** "ECONNREFUSED" or "Cannot connect to localhost:20128".
+**Problem:** "ECONNREFUSED" or "Cannot connect to localhost:8080".
 
 **Causes:**
 - 9Router not running
-- Port 20128 blocked
+- Port 8080 blocked
 - Firewall blocking connection
 
 **Solutions:**
@@ -147,19 +147,19 @@ Common issues and solutions when using 9Router.
    ```
    Dashboard should open at http://localhost:3000
 
-2. **Verify port 20128:**
+2. **Verify port 8080:**
    ```bash
    # Check if port is listening
-   lsof -i :20128
+   lsof -i :8080
    
    # Or on Windows
-   netstat -ano | findstr :20128
+   netstat -ano | findstr :8080
    ```
 
 3. **Check firewall:**
    - macOS: System Settings → Network → Firewall
    - Windows: Windows Defender Firewall → Allow app
-   - Linux: `sudo ufw allow 20128`
+   - Linux: `sudo ufw allow 8080`
 
 4. **Use cloud endpoint:**
    If localhost doesn't work (e.g., Cursor IDE):
@@ -243,7 +243,7 @@ Common issues and solutions when using 9Router.
 
 3. **List available models:**
    ```bash
-   curl http://localhost:20128/v1/models \
+   curl http://localhost:8080/v1/models \
      -H "Authorization: Bearer your-api-key"
    ```
 
@@ -338,7 +338,7 @@ Common issues and solutions when using 9Router.
 
 4. **Test API key:**
    ```bash
-   curl http://localhost:20128/v1/models \
+   curl http://localhost:8080/v1/models \
      -H "Authorization: Bearer 9r_your_key"
    ```
 

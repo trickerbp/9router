@@ -49,7 +49,7 @@
 │  Your CLI   │  (Claude Code, Codex, OpenClaw, Cursor, Cline...)
 │   Tool      │
 └──────┬──────┘
-       │ http://localhost:20128/v1
+       │ http://localhost:8080/v1
        ↓
 ┌─────────────────────────────────────────────┐
 │           9Router (Smart Router)            │
@@ -79,7 +79,7 @@ npm install -g 9router
 9router
 ```
 
-🎉 Dashboard opens at `http://localhost:20128`
+🎉 Dashboard opens at `http://localhost:8080`
 
 **2. Connect a FREE provider (no signup needed):**
 
@@ -89,7 +89,7 @@ Dashboard → Providers → Connect **Kiro AI** (free Claude unlimited) or **Ope
 
 ```
 Claude Code/Codex/OpenClaw/Cursor/Cline Settings:
-  Endpoint: http://localhost:20128/v1
+  Endpoint: http://localhost:8080/v1
   API Key: [copy from dashboard]
   Model: kr/claude-sonnet-4.5
 ```
@@ -103,19 +103,19 @@ This repository package is private (`9router-app`), so source/Docker execution i
 ```bash
 cp .env.example .env
 npm install
-PORT=20128 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run dev
+PORT=8080 NEXT_PUBLIC_BASE_URL=http://localhost:8080 npm run dev
 ```
 
 Production mode:
 
 ```bash
 npm run build
-PORT=20128 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:20128 npm run start
+PORT=8080 HOSTNAME=0.0.0.0 NEXT_PUBLIC_BASE_URL=http://localhost:8080 npm run start
 ```
 
 Default URLs:
-- Dashboard: `http://localhost:20128/dashboard`
-- OpenAI-compatible API: `http://localhost:20128/v1`
+- Dashboard: `http://localhost:8080/dashboard`
+- OpenAI-compatible API: `http://localhost:8080/v1`
 
 ---
 
@@ -937,7 +937,7 @@ Cost: $0 forever (+ 20-40% token savings via RTK)!
 
 ```
 Settings → Models → Advanced:
-  OpenAI API Base URL: http://localhost:20128/v1
+  OpenAI API Base URL: http://localhost:8080/v1
   OpenAI API Key: [from 9router dashboard]
   Model: cc/claude-opus-4-7
 ```
@@ -950,7 +950,7 @@ Edit `~/.claude/config.json`:
 
 ```json
 {
-  "anthropic_api_base": "http://localhost:20128/v1",
+  "anthropic_api_base": "http://localhost:8080/v1",
   "anthropic_api_key": "your-9router-api-key"
 }
 ```
@@ -958,7 +958,7 @@ Edit `~/.claude/config.json`:
 ### Codex CLI
 
 ```bash
-export OPENAI_BASE_URL="http://localhost:20128"
+export OPENAI_BASE_URL="http://localhost:8080"
 export OPENAI_API_KEY="your-9router-api-key"
 
 codex "your prompt"
@@ -986,7 +986,7 @@ Dashboard → CLI Tools → OpenClaw → Select Model → Apply
   "models": {
     "providers": {
       "9router": {
-        "baseUrl": "http://127.0.0.1:20128/v1",
+        "baseUrl": "http://127.0.0.1:8080/v1",
         "apiKey": "sk_9router",
         "api": "openai-completions",
         "models": [
@@ -1007,7 +1007,7 @@ Dashboard → CLI Tools → OpenClaw → Select Model → Apply
 
 ```
 Provider: OpenAI Compatible
-Base URL: http://localhost:20128/v1
+Base URL: http://localhost:8080/v1
 API Key: [from dashboard]
 Model: cc/claude-opus-4-7
 ```
@@ -1030,10 +1030,10 @@ npm run build
 export JWT_SECRET="your-secure-secret-change-this"
 export INITIAL_PASSWORD="your-password"
 export DATA_DIR="/var/lib/9router"
-export PORT="20128"
+export PORT="8080"
 export HOSTNAME="0.0.0.0"
 export NODE_ENV="production"
-export NEXT_PUBLIC_BASE_URL="http://localhost:20128"
+export NEXT_PUBLIC_BASE_URL="http://localhost:8080"
 export NEXT_PUBLIC_CLOUD_URL="https://9router.com"
 export API_KEY_SECRET="endpoint-proxy-api-key-secret"
 export MACHINE_ID_SALT="endpoint-proxy-salt"
@@ -1059,13 +1059,13 @@ Published images (multi-platform `linux/amd64` + `linux/arm64`):
 ```bash
 docker run -d \
   --name 9router \
-  -p 20128:20128 \
+  -p 8080:8080 \
   -v "$HOME/.9router:/app/data" \
   -e DATA_DIR=/app/data \
   decolua/9router:latest
 ```
 
-→ Open http://localhost:20128
+→ Open http://localhost:8080
 
 **Build from source (dev):**
 
@@ -1073,12 +1073,12 @@ docker run -d \
 git clone https://github.com/decolua/9router.git
 cd 9router/app
 docker build -t 9router .
-docker run -d --name 9router -p 20128:20128 \
+docker run -d --name 9router -p 8080:8080 \
   -v "$HOME/.9router:/app/data" -e DATA_DIR=/app/data 9router
 ```
 
 **Container defaults:**
-- `PORT=20128`
+- `PORT=8080`
 - `HOSTNAME=0.0.0.0`
 
 **Useful commands:**
@@ -1099,10 +1099,10 @@ docker pull decolua/9router:latest   # update to latest
 | `JWT_SECRET` | Auto-generated (`~/.9router/jwt-secret`) | JWT signing secret for dashboard auth cookie (override to share across instances) |
 | `INITIAL_PASSWORD` | `123456` | First login password when no saved hash exists |
 | `DATA_DIR` | `~/.9router` | Main app data location (SQLite at `$DATA_DIR/db/data.sqlite`) |
-| `PORT` | framework default | Service port (`20128` in examples) |
+| `PORT` | framework default | Service port (`8080` in examples) |
 | `HOSTNAME` | framework default | Bind host (Docker defaults to `0.0.0.0`) |
 | `NODE_ENV` | runtime default | Set `production` for deploy |
-| `BASE_URL` | `http://localhost:20128` | Server-side internal base URL used by cloud sync jobs |
+| `BASE_URL` | `http://localhost:8080` | Server-side internal base URL used by cloud sync jobs |
 | `CLOUD_URL` | `https://9router.com` | Server-side cloud sync endpoint base URL |
 | `NEXT_PUBLIC_BASE_URL` | `http://localhost:3000` | Backward-compatible/public base URL (prefer `BASE_URL` for server runtime) |
 | `NEXT_PUBLIC_CLOUD_URL` | `https://9router.com` | Backward-compatible/public cloud URL (prefer `CLOUD_URL` for server runtime) |
@@ -1218,7 +1218,7 @@ Notes:
 - Use free tier (Kiro, OpenCode Free, Vertex) for non-critical tasks
 
 **Dashboard opens on wrong port**
-- Set `PORT=20128` and `NEXT_PUBLIC_BASE_URL=http://localhost:20128`
+- Set `PORT=8080` and `NEXT_PUBLIC_BASE_URL=http://localhost:8080`
 
 **First login not working**
 - Check `INITIAL_PASSWORD` in `.env`
@@ -1245,7 +1245,7 @@ Notes:
 ### Chat Completions
 
 ```bash
-POST http://localhost:20128/v1/chat/completions
+POST http://localhost:8080/v1/chat/completions
 Authorization: Bearer your-api-key
 Content-Type: application/json
 
@@ -1261,7 +1261,7 @@ Content-Type: application/json
 ### List Models
 
 ```bash
-GET http://localhost:20128/v1/models
+GET http://localhost:8080/v1/models
 Authorization: Bearer your-api-key
 
 → Returns all models + combos in OpenAI format

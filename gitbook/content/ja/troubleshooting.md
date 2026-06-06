@@ -132,11 +132,11 @@
 
 ## Connection Refused
 
-**問題:** 「ECONNREFUSED」または「Cannot connect to localhost:20128」。
+**問題:** 「ECONNREFUSED」または「Cannot connect to localhost:8080」。
 
 **原因:**
 - 9Routerが起動していない
-- ポート20128がブロックされている
+- ポート8080がブロックされている
 - ファイアウォールが接続をブロック
 
 **解決策:**
@@ -147,19 +147,19 @@
    ```
    ダッシュボードがhttp://localhost:3000で開くはず
 
-2. **ポート20128を確認:**
+2. **ポート8080を確認:**
    ```bash
    # ポートがリッスンしているか確認
-   lsof -i :20128
+   lsof -i :8080
    
    # またはWindowsで
-   netstat -ano | findstr :20128
+   netstat -ano | findstr :8080
    ```
 
 3. **ファイアウォールを確認:**
    - macOS: システム設定 → ネットワーク → ファイアウォール
    - Windows: Windows Defenderファイアウォール → アプリを許可
-   - Linux: `sudo ufw allow 20128`
+   - Linux: `sudo ufw allow 8080`
 
 4. **クラウドエンドポイントを使用:**
    localhostが動作しない場合(例: Cursor IDE):
@@ -243,7 +243,7 @@
 
 3. **利用可能なモデルを一覧表示:**
    ```bash
-   curl http://localhost:20128/v1/models \
+   curl http://localhost:8080/v1/models \
      -H "Authorization: Bearer your-api-key"
    ```
 
@@ -338,7 +338,7 @@
 
 4. **APIキーをテスト:**
    ```bash
-   curl http://localhost:20128/v1/models \
+   curl http://localhost:8080/v1/models \
      -H "Authorization: Bearer 9r_your_key"
    ```
 

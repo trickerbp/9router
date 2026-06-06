@@ -16,7 +16,7 @@
 
 ```bash
 # 9Router 的 Base URL
-export OPENAI_BASE_URL="http://localhost:20128/v1"
+export OPENAI_BASE_URL="http://localhost:8080/v1"
 
 # 来自 9Router 仪表盘的 API Key
 export OPENAI_API_KEY="your-9router-api-key"
@@ -76,7 +76,7 @@ codex --model cx/gpt-5.1-codex-max "Explain what this code does: $(cat myfile.js
 
 ```json
 {
-  "baseUrl": "http://localhost:20128/v1",
+  "baseUrl": "http://localhost:8080/v1",
   "apiKey": "your-9router-api-key",
   "defaultModel": "cx/gpt-5.2-codex"
 }
@@ -96,9 +96,9 @@ codex --model cx/gpt-5.1-codex-max "Explain what this code does: $(cat myfile.js
 
 遇到连接错误时:
 
-1. 确认 9Router 正在运行:`curl http://localhost:20128/health`
+1. 确认 9Router 正在运行:`curl http://localhost:8080/health`
 2. 检查环境变量设置是否正确
-3. 确保防火墙没有阻止 20128 端口
+3. 确保防火墙没有阻止 8080 端口
 
 ### 模型不可用
 

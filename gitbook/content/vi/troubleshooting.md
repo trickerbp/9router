@@ -132,11 +132,11 @@ Các vấn đề và giải pháp phổ biến khi dùng 9Router.
 
 ## Connection Refused
 
-**Vấn đề:** Lỗi "ECONNREFUSED" hoặc "Cannot connect to localhost:20128".
+**Vấn đề:** Lỗi "ECONNREFUSED" hoặc "Cannot connect to localhost:8080".
 
 **Nguyên nhân:**
 - 9Router không chạy
-- Port 20128 bị chặn
+- Port 8080 bị chặn
 - Firewall chặn kết nối
 
 **Giải pháp:**
@@ -147,19 +147,19 @@ Các vấn đề và giải pháp phổ biến khi dùng 9Router.
    ```
    Dashboard sẽ mở tại http://localhost:3000
 
-2. **Xác minh port 20128:**
+2. **Xác minh port 8080:**
    ```bash
    # Check if port is listening
-   lsof -i :20128
+   lsof -i :8080
    
    # Or on Windows
-   netstat -ano | findstr :20128
+   netstat -ano | findstr :8080
    ```
 
 3. **Kiểm tra firewall:**
    - macOS: System Settings → Network → Firewall
    - Windows: Windows Defender Firewall → Allow app
-   - Linux: `sudo ufw allow 20128`
+   - Linux: `sudo ufw allow 8080`
 
 4. **Dùng cloud endpoint:**
    Nếu localhost không hoạt động (ví dụ: Cursor IDE):
@@ -243,7 +243,7 @@ Các vấn đề và giải pháp phổ biến khi dùng 9Router.
 
 3. **Liệt kê model khả dụng:**
    ```bash
-   curl http://localhost:20128/v1/models \
+   curl http://localhost:8080/v1/models \
      -H "Authorization: Bearer your-api-key"
    ```
 
@@ -338,7 +338,7 @@ Các vấn đề và giải pháp phổ biến khi dùng 9Router.
 
 4. **Test API key:**
    ```bash
-   curl http://localhost:20128/v1/models \
+   curl http://localhost:8080/v1/models \
      -H "Authorization: Bearer 9r_your_key"
    ```
 

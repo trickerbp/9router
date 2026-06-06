@@ -22,7 +22,7 @@
 
 **本地 9Router:**
 ```
-Base URL: http://localhost:20128/v1
+Base URL: http://localhost:8080/v1
 API Key: your-api-key-from-dashboard
 ```
 
@@ -87,7 +87,7 @@ Hello! Can you confirm you're connected through 9Router?
 ## 故障排除
 
 ### 连接失败
-- 确认 9Router 正在运行:`curl http://localhost:20128/health`
+- 确认 9Router 正在运行:`curl http://localhost:8080/health`
 - 检查 API key 是否正确
 - 确保 Base URL 末尾包含 `/v1`
 

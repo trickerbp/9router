@@ -17,7 +17,7 @@ Any OpenAI-compatible tool can connect to 9Router using these settings:
 
 **Local 9Router:**
 ```
-Base URL: http://localhost:20128/v1
+Base URL: http://localhost:8080/v1
 API Key: your-api-key-from-dashboard
 Model: any 9Router model (cc/*, cx/*, glm/*, etc.)
 ```
@@ -53,7 +53,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="your-api-key-from-dashboard",
-    base_url="http://localhost:20128/v1"
+    base_url="http://localhost:8080/v1"
 )
 
 response = client.chat.completions.create(
@@ -73,7 +73,7 @@ import OpenAI from "openai";
 
 const client = new OpenAI({
   apiKey: "your-api-key-from-dashboard",
-  baseURL: "http://localhost:20128/v1"
+  baseURL: "http://localhost:8080/v1"
 });
 
 const response = await client.chat.completions.create({
@@ -89,7 +89,7 @@ console.log(response.choices[0].message.content);
 ### cURL Command
 
 ```bash
-curl http://localhost:20128/v1/chat/completions \
+curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your-api-key-from-dashboard" \
   -d '{
@@ -104,7 +104,7 @@ curl http://localhost:20128/v1/chat/completions \
 
 **Request:**
 ```
-POST http://localhost:20128/v1/chat/completions
+POST http://localhost:8080/v1/chat/completions
 ```
 
 **Headers:**
@@ -134,7 +134,7 @@ from langchain.schema import HumanMessage
 llm = ChatOpenAI(
     model_name="cc/claude-sonnet-4-20250514",
     openai_api_key="your-api-key-from-dashboard",
-    openai_api_base="http://localhost:20128/v1",
+    openai_api_base="http://localhost:8080/v1",
     temperature=0.7
 )
 
@@ -151,7 +151,7 @@ from llama_index.llms import OpenAI
 llm = OpenAI(
     model="cc/claude-sonnet-4-20250514",
     api_key="your-api-key-from-dashboard",
-    api_base="http://localhost:20128/v1"
+    api_base="http://localhost:8080/v1"
 )
 
 response = llm.complete("What is machine learning?")
@@ -167,7 +167,7 @@ import openai
 import json
 
 openai.api_key = "your-api-key-from-dashboard"
-openai.api_base = "http://localhost:20128/v1"
+openai.api_base = "http://localhost:8080/v1"
 
 def process_batch(prompts, model="cx/deepseek-chat"):
     results = []
@@ -199,7 +199,7 @@ import OpenAI from "openai";
 
 const client = new OpenAI({
   apiKey: "your-api-key-from-dashboard",
-  baseURL: "http://localhost:20128/v1"
+  baseURL: "http://localhost:8080/v1"
 });
 
 async function streamResponse(prompt) {
@@ -225,7 +225,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="your-api-key-from-dashboard",
-    base_url="http://localhost:20128/v1"
+    base_url="http://localhost:8080/v1"
 )
 
 models = [
@@ -254,7 +254,7 @@ Store credentials securely:
 ```bash
 # .env file
 ROUTER_API_KEY=your-api-key-from-dashboard
-ROUTER_BASE_URL=http://localhost:20128/v1
+ROUTER_BASE_URL=http://localhost:8080/v1
 ROUTER_MODEL=cc/claude-sonnet-4-20250514
 ```
 
@@ -275,7 +275,7 @@ from openai import OpenAI, OpenAIError
 
 client = OpenAI(
     api_key="your-api-key",
-    base_url="http://localhost:20128/v1"
+    base_url="http://localhost:8080/v1"
 )
 
 try:
@@ -296,7 +296,7 @@ from openai import OpenAI, RateLimitError
 
 client = OpenAI(
     api_key="your-api-key",
-    base_url="http://localhost:20128/v1"
+    base_url="http://localhost:8080/v1"
 )
 
 def chat_with_retry(prompt, max_retries=3):
@@ -321,7 +321,7 @@ def chat_with_retry(prompt, max_retries=3):
 **Problem:** Cannot connect to 9Router
 ```bash
 # Check if 9Router is running
-curl http://localhost:20128/health
+curl http://localhost:8080/health
 
 # Expected response:
 {"status": "ok"}
@@ -329,7 +329,7 @@ curl http://localhost:20128/health
 
 **Solution:**
 - Verify 9Router is running
-- Check port 20128 is not blocked
+- Check port 8080 is not blocked
 - Ensure correct base URL (include `/v1`)
 
 ### Authentication Errors
@@ -353,7 +353,7 @@ Error: Model 'cc/claude-opus' not found
 
 **Solution:**
 - Use exact model name (case-sensitive)
-- Check available models: `curl http://localhost:20128/v1/models`
+- Check available models: `curl http://localhost:8080/v1/models`
 - Verify model is enabled in your plan
 
 ### Timeout Issues

@@ -254,7 +254,7 @@ Model: kimi/kimi-latest
 
 ```
 Settings → Models → Advanced:
-  OpenAI API Base URL: http://localhost:20128/v1
+  OpenAI API Base URL: http://localhost:8080/v1
   OpenAI API Key: [从 9router 仪表盘获取]
   Model: glm/glm-4.7
 ```

@@ -55,7 +55,7 @@ describe("dashboard guard public LLM API access", () => {
   });
 
   it("allows loopback public LLM API without API key", async () => {
-    const response = await proxy(request("/v1/chat/completions", { host: "localhost:20128" }));
+    const response = await proxy(request("/v1/chat/completions", { host: "localhost:8080" }));
 
     expect(response).toBe(mocks.nextResponse);
     expect(mocks.validateApiKey).not.toHaveBeenCalled();
@@ -69,7 +69,7 @@ describe("dashboard guard public LLM API access", () => {
   });
 
   it("allows loopback rewritten public LLM API without API key", async () => {
-    const response = await proxy(request("/api/v1/chat/completions", { host: "localhost:20128" }));
+    const response = await proxy(request("/api/v1/chat/completions", { host: "localhost:8080" }));
 
     expect(response).toBe(mocks.nextResponse);
     expect(mocks.validateApiKey).not.toHaveBeenCalled();
@@ -146,8 +146,8 @@ describe("dashboard guard local-only access", () => {
 
   it("rejects local-only route on loopback when requireLogin=true and no JWT", async () => {
     const response = await proxy(request("/api/mcp/filesystem/sse", {
-      host: "localhost:20128",
-      origin: "http://localhost:20128",
+      host: "localhost:8080",
+      origin: "http://localhost:8080",
     }));
 
     expect(response.status).toBe(403);
@@ -158,8 +158,8 @@ describe("dashboard guard local-only access", () => {
     mocks.getSettings.mockResolvedValue({ requireLogin: false });
 
     const response = await proxy(request("/api/cli-tools/antigravity-mitm", {
-      host: "localhost:20128",
-      origin: "http://localhost:20128",
+      host: "localhost:8080",
+      origin: "http://localhost:8080",
     }));
 
     expect(response).toBe(mocks.nextResponse);
@@ -179,7 +179,7 @@ describe("dashboard guard local-only access", () => {
     mocks.getSettings.mockResolvedValue({ requireLogin: false });
 
     const response = await proxy(request("/api/cli-tools/antigravity-mitm", {
-      host: "localhost:20128",
+      host: "localhost:8080",
       origin: "http://evil.example.com",
     }));
 

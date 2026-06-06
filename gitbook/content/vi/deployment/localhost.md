@@ -30,7 +30,7 @@ Dashboard sẽ tự động mở trong trình duyệt tại `http://localhost:30
 
 **Cấu hình mặc định:**
 - **Dashboard**: `http://localhost:3000`
-- **API Endpoint**: `http://localhost:20128/v1`
+- **API Endpoint**: `http://localhost:8080/v1`
 - **Data Directory**: `~/.9router`
 
 ---
@@ -47,7 +47,7 @@ DATA_DIR=/path/to/data 9router
 
 ### Custom Port
 
-Port API (20128) và port dashboard (3000) được cấu hình trong application. Để đổi, bạn cần sửa source code hoặc dùng biến môi trường nếu được hỗ trợ.
+Port API (8080) và port dashboard (3000) được cấu hình trong application. Để đổi, bạn cần sửa source code hoặc dùng biến môi trường nếu được hỗ trợ.
 
 ---
 
@@ -96,11 +96,11 @@ npm list -g 9router
 
 ### Port đã được dùng
 
-Nếu port 20128 hoặc 3000 đã được dùng:
+Nếu port 8080 hoặc 3000 đã được dùng:
 
 ```bash
 # Find process using the port (macOS/Linux)
-lsof -i :20128
+lsof -i :8080
 lsof -i :3000
 
 # Kill the process

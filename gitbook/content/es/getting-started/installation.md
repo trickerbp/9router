@@ -97,7 +97,7 @@ npm start
 ```
 
 **Qué sucede:**
-1. El servidor inicia en `http://localhost:20128`
+1. El servidor inicia en `http://localhost:8080`
 2. El dashboard se abre automáticamente en el navegador
 3. Se crea el directorio de datos en `~/.9router`
 4. API key generada automáticamente
@@ -132,7 +132,7 @@ Dashboard → Settings → API Keys
 ### Verifica el estado del servidor
 
 ```bash
-curl http://localhost:20128/health
+curl http://localhost:8080/health
 ```
 
 **Respuesta esperada:**
@@ -146,7 +146,7 @@ curl http://localhost:20128/health
 ### Lista los modelos disponibles
 
 ```bash
-curl http://localhost:20128/v1/models \
+curl http://localhost:8080/v1/models \
   -H "Authorization: Bearer your-api-key"
 ```
 
@@ -168,7 +168,7 @@ curl http://localhost:20128/v1/models \
 ### Prueba el chat completion
 
 ```bash
-curl http://localhost:20128/v1/chat/completions \
+curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -196,7 +196,7 @@ export INITIAL_PASSWORD="your-password"
 export DATA_DIR="~/.9router"
 
 # Server
-export PORT="20128"
+export PORT="8080"
 export NODE_ENV="production"
 
 # Logging
@@ -224,7 +224,7 @@ export DATA_DIR="/custom/path"
 
 ### Configuración de puerto
 
-**Puerto por defecto:** `20128`
+**Puerto por defecto:** `8080`
 
 **Cambiar puerto:**
 
@@ -247,14 +247,14 @@ export PORT="3000"
 
 **Error:**
 ```
-Error: listen EADDRINUSE: address already in use :::20128
+Error: listen EADDRINUSE: address already in use :::8080
 ```
 
 **Solución 1: Mata el proceso existente**
 
 ```bash
-# Encuentra proceso usando el puerto 20128
-lsof -i :20128
+# Encuentra proceso usando el puerto 8080
+lsof -i :8080
 
 # Mata el proceso
 kill -9 <PID>
@@ -310,7 +310,7 @@ nvm use 20
 **Solución 1: Abrir manualmente**
 
 ```
-http://localhost:20128
+http://localhost:8080
 ```
 
 **Solución 2: Verifica el firewall**
@@ -404,7 +404,7 @@ pm2 startup
 docker pull 9router/9router:latest
 
 docker run -d \
-  -p 20128:20128 \
+  -p 8080:8080 \
   -e JWT_SECRET="your-secure-secret" \
   -e INITIAL_PASSWORD="your-password" \
   -v 9router-data:/root/.9router \
@@ -422,7 +422,7 @@ server {
     server_name your-domain.com;
 
     location / {
-        proxy_pass http://localhost:20128;
+        proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

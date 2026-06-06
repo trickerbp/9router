@@ -201,7 +201,7 @@ See [Cursor integration guide](integration/cursor.md) for details.
 npm install -g 9router
 9router
 → Dashboard: http://localhost:3000
-→ API: http://localhost:20128/v1
+→ API: http://localhost:8080/v1
 ```
 
 ### VPS/Cloud

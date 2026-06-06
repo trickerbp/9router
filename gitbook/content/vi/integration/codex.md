@@ -16,7 +16,7 @@ Tích hợp 9Router với OpenAI Codex CLI để định tuyến request API Ope
 
 ```bash
 # Base URL for 9Router
-export OPENAI_BASE_URL="http://localhost:20128/v1"
+export OPENAI_BASE_URL="http://localhost:8080/v1"
 
 # API Key from 9Router dashboard
 export OPENAI_API_KEY="your-9router-api-key"
@@ -76,7 +76,7 @@ Bạn cũng có thể cấu hình Codex CLI qua file cấu hình. Tạo hoặc s
 
 ```json
 {
-  "baseUrl": "http://localhost:20128/v1",
+  "baseUrl": "http://localhost:8080/v1",
   "apiKey": "your-9router-api-key",
   "defaultModel": "cx/gpt-5.2-codex"
 }
@@ -96,9 +96,9 @@ Nếu gặp lỗi xác thực:
 
 Nếu gặp lỗi kết nối:
 
-1. Xác minh 9Router đang chạy: `curl http://localhost:20128/health`
+1. Xác minh 9Router đang chạy: `curl http://localhost:8080/health`
 2. Kiểm tra biến môi trường đã set đúng
-3. Đảm bảo không firewall nào chặn port 20128
+3. Đảm bảo không firewall nào chặn port 8080
 
 ### Model không khả dụng
 

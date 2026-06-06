@@ -111,6 +111,9 @@ const GOOGLE_DNS_SERVERS = ["8.8.8.8", "8.8.4.4"];
 const HTTPS_PORT = 443;
 const HTTP_SUCCESS_MIN = 200;
 const HTTP_SUCCESS_MAX = 300;
+// Idle socket timeout for the DNS-bypass path. Mirrors FETCH_CONNECT_TIMEOUT_MS
+// intent: don't let a half-open AWS/Google socket hang the request forever.
+const BYPASS_SOCKET_TIMEOUT_MS = 60 * 1000;
 
 function normalizeString(value) {
   if (value === undefined || value === null) return "";
@@ -243,7 +246,41 @@ async function createBypassRequest(parsedUrl, realIP, options) {
   const net = netModule.default ?? netModule;
 
   return new Promise((resolve, reject) => {
+    const signal = options.signal;
+    if (signal?.aborted) {
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+      return;
+    }
+
     const socket = new net.Socket();
+    let settled = false;
+    let req = null;
+    let onAbort = null;
+
+    const cleanup = () => {
+      if (onAbort && signal) signal.removeEventListener("abort", onAbort);
+    };
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      try { req?.destroy(); } catch { /* noop */ }
+      try { socket.destroy(); } catch { /* noop */ }
+      reject(err);
+    };
+
+    // Honor caller abort (stall watchdog / client disconnect): tear down the
+    // socket so an idle AWS connection doesn't leak. Without this the bypass
+    // path ignored the signal entirely and sockets accumulated under load.
+    if (signal) {
+      onAbort = () => fail(new DOMException("The operation was aborted.", "AbortError"));
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    // Idle/connect timeout: abort if the socket stalls (no data) for too long.
+    socket.setTimeout(BYPASS_SOCKET_TIMEOUT_MS, () => {
+      fail(new Error("bypass socket timeout"));
+    });
 
     socket.connect(HTTPS_PORT, realIP, () => {
       const reqOptions = {
@@ -263,7 +300,14 @@ async function createBypassRequest(parsedUrl, realIP, options) {
         },
       };
 
-      const req = https.request(reqOptions, (res) => {
+      req = https.request(reqOptions, (res) => {
+        if (settled) { try { res.destroy(); } catch { /* noop */ } return; }
+        settled = true;
+        cleanup();
+        // Abort after headers must also tear down the in-flight body stream.
+        if (signal) {
+          signal.addEventListener("abort", () => { try { res.destroy(); } catch { /* noop */ } }, { once: true });
+        }
         const response = {
           ok: res.statusCode >= HTTP_SUCCESS_MIN && res.statusCode < HTTP_SUCCESS_MAX,
           status: res.statusCode,
@@ -280,14 +324,14 @@ async function createBypassRequest(parsedUrl, realIP, options) {
         resolve(response);
       });
 
-      req.on("error", reject);
+      req.on("error", fail);
       if (options.body) {
         req.write(typeof options.body === "string" ? options.body : JSON.stringify(options.body));
       }
       req.end();
     });
 
-    socket.on("error", reject);
+    socket.on("error", fail);
   });
 }
 

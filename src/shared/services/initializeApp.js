@@ -34,6 +34,7 @@ process.setMaxListeners(20);
 // Survive Next.js hot reload
 const g = global.__appSingleton ??= {
   signalHandlersRegistered: false,
+  crashHandlersRegistered: false,
   watchdogInterval: null,
   networkMonitorInterval: null,
   lastNetworkFingerprint: null,
@@ -61,6 +62,23 @@ export async function initializeApp() {
       g.tailscaleAutoResumed = true;
       console.log("[InitApp] Tailscale was enabled, auto-resuming...");
       safeRestartTailscale("startup").catch((e) => console.log("[InitApp] Tailscale resume failed:", e.message));
+    }
+
+    // Global crash guards: a single unhandled async rejection or uncaught
+    // exception would otherwise terminate the entire Node process (default
+    // behavior on Node 15+), taking down the proxy under heavy concurrent
+    // load. Heavy agent tasks fan out many in-flight streaming requests, so
+    // the odds that one rejects in an un-caught path rise with concurrency —
+    // which is why the "burn-out" was intermittent. Log and stay alive.
+    if (!g.crashHandlersRegistered) {
+      g.crashHandlersRegistered = true;
+      process.on("unhandledRejection", (reason) => {
+        const err = reason instanceof Error ? reason : new Error(String(reason));
+        console.error("[FATAL-GUARD] Unhandled promise rejection (kept process alive):", err?.stack || err?.message || err);
+      });
+      process.on("uncaughtException", (error) => {
+        console.error("[FATAL-GUARD] Uncaught exception (kept process alive):", error?.stack || error?.message || error);
+      });
     }
 
     if (!g.signalHandlersRegistered) {

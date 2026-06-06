@@ -97,7 +97,7 @@ npm start
 ```
 
 **Điều gì xảy ra:**
-1. Server khởi động tại `http://localhost:20128`
+1. Server khởi động tại `http://localhost:8080`
 2. Dashboard tự động mở trong browser
 3. Data directory được tạo tại `~/.9router`
 4. API key được tạo tự động
@@ -132,7 +132,7 @@ Dashboard → Settings → API Keys
 ### Kiểm tra trạng thái Server
 
 ```bash
-curl http://localhost:20128/health
+curl http://localhost:8080/health
 ```
 
 **Phản hồi dự kiến:**
@@ -146,7 +146,7 @@ curl http://localhost:20128/health
 ### Liệt kê Model khả dụng
 
 ```bash
-curl http://localhost:20128/v1/models \
+curl http://localhost:8080/v1/models \
   -H "Authorization: Bearer your-api-key"
 ```
 
@@ -168,7 +168,7 @@ curl http://localhost:20128/v1/models \
 ### Test Chat Completion
 
 ```bash
-curl http://localhost:20128/v1/chat/completions \
+curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -196,7 +196,7 @@ export INITIAL_PASSWORD="your-password"
 export DATA_DIR="~/.9router"
 
 # Server
-export PORT="20128"
+export PORT="8080"
 export NODE_ENV="production"
 
 # Logging
@@ -224,7 +224,7 @@ export DATA_DIR="/custom/path"
 
 ### Cấu hình Port
 
-**Port mặc định:** `20128`
+**Port mặc định:** `8080`
 
 **Đổi port:**
 
@@ -247,14 +247,14 @@ export PORT="3000"
 
 **Lỗi:**
 ```
-Error: listen EADDRINUSE: address already in use :::20128
+Error: listen EADDRINUSE: address already in use :::8080
 ```
 
 **Giải pháp 1: Kill process hiện có**
 
 ```bash
-# Find process using port 20128
-lsof -i :20128
+# Find process using port 8080
+lsof -i :8080
 
 # Kill process
 kill -9 <PID>
@@ -310,7 +310,7 @@ nvm use 20
 **Giải pháp 1: Mở thủ công**
 
 ```
-http://localhost:20128
+http://localhost:8080
 ```
 
 **Giải pháp 2: Kiểm tra firewall**
@@ -404,7 +404,7 @@ pm2 startup
 docker pull 9router/9router:latest
 
 docker run -d \
-  -p 20128:20128 \
+  -p 8080:8080 \
   -e JWT_SECRET="your-secure-secret" \
   -e INITIAL_PASSWORD="your-password" \
   -v 9router-data:/root/.9router \
@@ -422,7 +422,7 @@ server {
     server_name your-domain.com;
 
     location / {
-        proxy_pass http://localhost:20128;
+        proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

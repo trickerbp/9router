@@ -20,7 +20,7 @@ npm install -g 9router
 9router
 ```
 
-🎉 **ダッシュボードが自動的に開きます** (`http://localhost:20128`)
+🎉 **ダッシュボードが自動的に開きます** (`http://localhost:8080`)
 
 - デフォルトパスワード: `123456` (ダッシュボードで変更)
 - APIキーは自動生成
@@ -89,7 +89,7 @@ Dashboard → Providers → Connect [Free Provider]
 
 ```
 Settings → Models → Advanced:
-  OpenAI API Base URL: http://localhost:20128/v1
+  OpenAI API Base URL: http://localhost:8080/v1
   OpenAI API Key: [9routerダッシュボードから取得]
   Model: cc/claude-opus-4-5-20251101
 ```
@@ -100,7 +100,7 @@ Settings → Models → Advanced:
 
 ```json
 {
-  "anthropic_api_base": "http://localhost:20128/v1",
+  "anthropic_api_base": "http://localhost:8080/v1",
   "anthropic_api_key": "your-9router-api-key"
 }
 ```
@@ -109,7 +109,7 @@ Settings → Models → Advanced:
 
 ```
 Provider: OpenAI Compatible
-Base URL: http://localhost:20128/v1
+Base URL: http://localhost:8080/v1
 API Key: [ダッシュボードから取得]
 Model: cc/claude-opus-4-5-20251101
 ```
@@ -117,7 +117,7 @@ Model: cc/claude-opus-4-5-20251101
 ### Codex CLI
 
 ```bash
-export OPENAI_BASE_URL="http://localhost:20128"
+export OPENAI_BASE_URL="http://localhost:8080"
 export OPENAI_API_KEY="your-9router-api-key"
 
 codex "your prompt"

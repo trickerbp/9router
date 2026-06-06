@@ -130,7 +130,7 @@ COPY . .
 RUN npm run build
 
 # Expose ports
-EXPOSE 3000 20128
+EXPOSE 3000 8080
 
 # Set environment variables
 ENV NODE_ENV=production
@@ -153,7 +153,7 @@ docker build -t 9router .
 docker run -d \
   --name 9router \
   -p 3000:3000 \
-  -p 20128:20128 \
+  -p 8080:8080 \
   -e JWT_SECRET="your-secure-secret-change-this" \
   -e INITIAL_PASSWORD="your-secure-password" \
   -v 9router-data:/app/data \
@@ -173,7 +173,7 @@ services:
     container_name: 9router
     ports:
       - "3000:3000"
-      - "20128:20128"
+      - "8080:8080"
     environment:
       - NODE_ENV=production
       - JWT_SECRET=your-secure-secret-change-this
@@ -266,7 +266,7 @@ server {
 
     # API endpoint
     location /v1 {
-        proxy_pass http://localhost:20128;
+        proxy_pass http://localhost:8080;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -335,7 +335,7 @@ sudo ufw allow 443/tcp
 
 # 若不使用反向代理,放开 9Router 端口
 sudo ufw allow 3000/tcp
-sudo ufw allow 20128/tcp
+sudo ufw allow 8080/tcp
 
 # 启用防火墙
 sudo ufw enable
@@ -418,7 +418,7 @@ htop
 df -h
 
 # 网络连接
-netstat -tulpn | grep -E '3000|20128'
+netstat -tulpn | grep -E '3000|8080'
 ```
 
 ---
@@ -433,7 +433,7 @@ pm2 logs 9router
 
 # 检查端口是否被占用
 sudo lsof -i :3000
-sudo lsof -i :20128
+sudo lsof -i :8080
 
 # 检查环境变量
 pm2 env 9router

@@ -29,7 +29,7 @@ Base URLを9Routerエンドポイントに設定:
 
 **ローカル9Router用:**
 ```
-http://localhost:20128/v1
+http://localhost:8080/v1
 ```
 
 **クラウド9Router用:**
@@ -70,7 +70,7 @@ Cline設定は次のようになります:
 
 ```
 API Provider: Ollama
-Base URL: http://localhost:20128/v1
+Base URL: http://localhost:8080/v1
 API Key: sk-9router-xxxxxxxxxxxxx
 Model: gpt-4
 ```
@@ -118,9 +118,9 @@ Model: gpt-4
 
 ### 「Connection Failed」エラー
 
-1. 9Routerが動作中か確認: `curl http://localhost:20128/health`
+1. 9Routerが動作中か確認: `curl http://localhost:8080/health`
 2. Base URLが正しく、`/v1` を含むことを確認
-3. ファイアウォールがポート20128をブロックしていないか確認
+3. ファイアウォールがポート8080をブロックしていないか確認
 4. VSCodeを再起動してみる
 
 ### 「Invalid API Key」エラー

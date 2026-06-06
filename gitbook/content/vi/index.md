@@ -116,7 +116,7 @@ npm install -g 9router
 **Dùng trong CLI tool:**
 
 ```
-Endpoint: http://localhost:20128/v1
+Endpoint: http://localhost:8080/v1
 API Key: [from dashboard]
 Model: cc/claude-opus-4-5-20251101
 ```
