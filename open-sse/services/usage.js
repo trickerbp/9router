@@ -74,7 +74,7 @@ export async function getUsageForProvider(connection, proxyOptions = null) {
     case "claude":
       return await getClaudeUsage(accessToken, proxyOptions);
     case "codex":
-      return await getCodexUsage(accessToken, proxyOptions);
+      return await getCodexUsage(accessToken, { ...providerDataWithProjectId, idToken: connection.idToken }, proxyOptions);
     case "kiro":
       return await getKiroUsage(accessToken, providerSpecificData, proxyOptions);
     case "qoder":
@@ -677,14 +677,36 @@ function getCodexReviewRateLimit(data) {
   }) || null;
 }
 
-async function getCodexUsage(accessToken, proxyOptions = null) {
+function decodeCodexAccountId(idToken) {
   try {
+    const parts = String(idToken || "").split(".");
+    if (parts.length !== 3) return null;
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const pad = (4 - (b64.length % 4)) % 4;
+    const payload = JSON.parse(Buffer.from(b64 + "=".repeat(pad), "base64").toString("utf8"));
+    return payload?.["https://api.openai.com/auth"]?.chatgpt_account_id || null;
+  } catch {
+    return null;
+  }
+}
+
+async function getCodexUsage(accessToken, providerSpecificData = null, proxyOptions = null) {
+  try {
+    const accountId =
+      providerSpecificData?.workspaceId ||
+      providerSpecificData?.chatgptAccountId ||
+      decodeCodexAccountId(providerSpecificData?.idToken);
+
+    const headers = {
+      "Authorization": `Bearer ${accessToken}`,
+      "Accept": "application/json",
+      "originator": "codex_cli_rs",
+    };
+    if (accountId) headers["chatgpt-account-id"] = accountId;
+
     const response = await proxyAwareFetch(CODEX_CONFIG.usageUrl, {
       method: "GET",
-      headers: {
-        "Authorization": `Bearer ${accessToken}`,
-        "Accept": "application/json",
-      },
+      headers,
     }, proxyOptions);
 
     if (!response.ok) {
