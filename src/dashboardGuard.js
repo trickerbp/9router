@@ -123,6 +123,9 @@ async function canAccessPublicLlmApi(request) {
 
 async function canAccessLocalOnlyRoute(request) {
   if (await hasValidCliToken(request)) return true;
+  // Authenticated admin (valid dashboard JWT) — allow remote/tunnel access so the
+  // dashboard UI works over a public IP, not just loopback. Password gate still applies.
+  if (await hasValidToken(request)) return true;
   // Browser on host: loopback Host + Origin (blocks tunnel/CSRF) + auth (JWT or requireLogin=false)
   if (isLocalRequest(request) && await isAuthenticated(request)) return true;
   return false;
