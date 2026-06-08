@@ -20,6 +20,24 @@ export const KIRO_THINKING_SUFFIX = "-thinking";
 
 export const KIRO_THINKING_BUDGET_DEFAULT = 16000;
 
+/**
+ * Max serialized payload size (bytes) for a CodeWhisperer request.
+ *
+ * Kiro upstream rejects oversized requests with
+ * `400 {"message":"Input is too long.","reason":"CONTENT_LENGTH_EXCEEDS_THRESHOLD"}`.
+ * Long agent sessions (many tool turns) blow past this and hard-fail. We bound
+ * the serialized `conversationState` proactively by trimming oldest history,
+ * so the request degrades gracefully instead of 400ing.
+ *
+ * Default 500KB is a conservative ceiling below the observed upstream limit,
+ * leaving headroom for headers and the EventStream envelope. Override via
+ * `KIRO_MAX_PAYLOAD_BYTES` if upstream behaviour changes.
+ */
+export const KIRO_MAX_PAYLOAD_BYTES = (() => {
+  const raw = Number(process.env.KIRO_MAX_PAYLOAD_BYTES);
+  return Number.isFinite(raw) && raw > 0 ? raw : 500_000;
+})();
+
 export const KIRO_AGENTIC_SYSTEM_PROMPT = `
 # CRITICAL: CHUNKED WRITE PROTOCOL (MANDATORY)
 

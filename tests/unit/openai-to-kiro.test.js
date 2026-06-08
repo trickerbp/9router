@@ -247,8 +247,7 @@ describe("buildKiroPayload", () => {
       expect(allJson).not.toContain("[Tool call:");
     });
 
-    it("should salvage orphaned tool_result content as text instead of discarding it", () => {
-      // Client provides tools, but compaction removed the assistant tool_use
+    it("should salvage orphaned tool_result content as text instead of discarding it", () => {      // Client provides tools, but compaction removed the assistant tool_use
       // message, leaving a tool_result whose tool_use_id matches nothing.
       const body = {
         messages: [
@@ -278,6 +277,101 @@ describe("buildKiroPayload", () => {
       expect(allJson).not.toContain("orphan_call");
       // ...but the content is preserved as salvaged text, not discarded.
       expect(allJson).toContain("[Tool result: important orphaned output]");
+    });
+  });
+
+  describe("payload budget (CONTENT_LENGTH_EXCEEDS_THRESHOLD guard)", () => {
+    // Kiro upstream 400s when the serialized conversationState exceeds its input
+    // threshold. buildKiroPayload must proactively trim to stay under
+    // KIRO_MAX_PAYLOAD_BYTES (default 500KB) instead of letting it fail.
+    const LIMIT = 500_000;
+
+    it("should drop oldest history turns to fit an oversized conversation", () => {
+      // Build a long conversation that overflows the limit. Each turn ~20KB.
+      const big = "x".repeat(20_000);
+      const messages = [];
+      for (let i = 0; i < 40; i++) {
+        messages.push({ role: "user", content: `turn ${i} ${big}` });
+        messages.push({ role: "assistant", content: `reply ${i} ${big}` });
+      }
+      messages.push({ role: "user", content: "FINAL QUESTION" });
+
+      const result = buildKiroPayload("claude-sonnet-4.6", { messages }, true, {});
+      const bytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+
+      expect(bytes).toBeLessThanOrEqual(LIMIT);
+      // The most recent turn (current message) is always preserved.
+      expect(result.conversationState.currentMessage.userInputMessage.content)
+        .toContain("FINAL QUESTION");
+      // Some history was shed.
+      expect(result.conversationState.history.length).toBeLessThan(80);
+    });
+
+    it("should not trim a conversation already within budget", () => {
+      const body = { messages: [{ role: "user", content: "short" }] };
+      const result = buildKiroPayload("claude-sonnet-4.6", body, true, {});
+      // History stays empty (single turn), content intact, no truncation marker.
+      expect(result.conversationState.history).toHaveLength(0);
+      expect(result.conversationState.currentMessage.userInputMessage.content)
+        .toContain("short");
+      expect(JSON.stringify(result)).not.toContain("truncated to fit");
+    });
+
+    it("should truncate the current message as a last resort when it alone overflows", () => {
+      // A single user turn larger than the entire budget — nothing to drop.
+      const huge = "y".repeat(LIMIT + 100_000);
+      const body = { messages: [{ role: "user", content: huge }] };
+
+      const result = buildKiroPayload("claude-sonnet-4.6", body, true, {});
+      const bytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+
+      expect(bytes).toBeLessThanOrEqual(LIMIT);
+      expect(result.conversationState.currentMessage.userInputMessage.content)
+        .toContain("truncated to fit Kiro input limit");
+    });
+
+    it("should not dangle a toolResult when dropping the assistant turn that produced it", () => {
+      // tools present → structured path. Old turns carry tool_use/tool_result
+      // pairs; trimming the assistant tool_use turn must re-fold its orphaned
+      // result to text rather than leave a dangling reference (itself a 400).
+      const big = "z".repeat(30_000);
+      const messages = [];
+      for (let i = 0; i < 30; i++) {
+        messages.push({ role: "user", content: `q${i} ${big}` });
+        messages.push({
+          role: "assistant",
+          content: null,
+          tool_calls: [{ id: `call_${i}`, type: "function", function: { name: "rd", arguments: "{}" } }]
+        });
+        messages.push({ role: "tool", tool_call_id: `call_${i}`, content: `res${i} ${big}` });
+      }
+      messages.push({ role: "user", content: "LAST" });
+
+      const tools = [{
+        type: "function",
+        function: { name: "rd", description: "read", parameters: { type: "object", properties: {}, required: [] } }
+      }];
+
+      const result = buildKiroPayload("claude-sonnet-4.6", { messages, tools }, true, {});
+      const bytes = Buffer.byteLength(JSON.stringify(result), "utf8");
+      const cs = result.conversationState;
+
+      expect(bytes).toBeLessThanOrEqual(LIMIT);
+
+      // Every surviving toolResult must have a matching toolUse somewhere in history.
+      const validIds = new Set();
+      for (const h of cs.history) {
+        for (const tu of h.assistantResponseMessage?.toolUses || []) {
+          if (tu.toolUseId) validIds.add(tu.toolUseId);
+        }
+      }
+      const carriers = [...cs.history, cs.currentMessage];
+      for (const item of carriers) {
+        const trs = item.userInputMessage?.userInputMessageContext?.toolResults || [];
+        for (const tr of trs) {
+          expect(validIds.has(tr.toolUseId)).toBe(true);
+        }
+      }
     });
   });
 });

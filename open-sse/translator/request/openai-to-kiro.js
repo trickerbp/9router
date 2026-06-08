@@ -9,8 +9,16 @@ import {
   resolveKiroModel,
   isThinkingEnabled,
   buildThinkingSystemPrefix,
-  KIRO_AGENTIC_SYSTEM_PROMPT
+  KIRO_AGENTIC_SYSTEM_PROMPT,
+  KIRO_MAX_PAYLOAD_BYTES
 } from "../../config/kiroConstants.js";
+
+/** UTF-8 byte length, working in both Node and Workers runtimes. */
+function byteLen(str) {
+  return typeof Buffer !== "undefined"
+    ? Buffer.byteLength(str, "utf8")
+    : new TextEncoder().encode(str).length;
+}
 
 /** Render a single tool call as a readable text line. */
 function toolCallToText(name, input) {
@@ -492,6 +500,63 @@ function convertMessages(messages, tools, model) {
 }
 
 /**
+ * Bound the serialized payload to KIRO_MAX_PAYLOAD_BYTES so CodeWhisperer does
+ * not reject it with `CONTENT_LENGTH_EXCEEDS_THRESHOLD` (HTTP 400).
+ *
+ * Strategy, in order of preference (least to most lossy):
+ *   1. Drop the OLDEST history turns one at a time — the current turn and recent
+ *      context matter most, so we shed the tail of the conversation first.
+ *   2. After each drop, re-run orphan reconciliation: removing an assistant turn
+ *      that carried `toolUses` can dangle a `toolResult` in a kept turn, which is
+ *      itself a 400 trigger. Folding it back to text keeps the request valid.
+ *   3. If history is exhausted and the single current message still overflows,
+ *      hard-truncate its text content as a last resort (keep the head — the
+ *      instruction usually leads).
+ *
+ * Mutates `payload` in place. Returns true if any trimming occurred.
+ */
+function enforcePayloadBudget(payload, clientProvidedTools, log) {
+  const cs = payload.conversationState;
+  if (!cs) return false;
+
+  const fits = () => byteLen(JSON.stringify(payload)) <= KIRO_MAX_PAYLOAD_BYTES;
+  if (fits()) return false;
+
+  let dropped = 0;
+  const startBytes = byteLen(JSON.stringify(payload));
+
+  // Phase 1: shed oldest history turns until it fits.
+  while (cs.history.length > 0 && !fits()) {
+    cs.history.shift();
+    dropped++;
+    // Re-link any toolResults that just lost their toolUse. currentMessage is a
+    // carrier too — an orphan can live there after merging.
+    if (clientProvidedTools) {
+      reconcileOrphanedToolResults(cs.history, cs.currentMessage);
+    }
+  }
+
+  // Phase 2: last resort — current message alone is over budget. Truncate text.
+  if (!fits()) {
+    const uim = cs.currentMessage?.userInputMessage;
+    if (uim && typeof uim.content === "string" && uim.content.length > 0) {
+      const overflow = byteLen(JSON.stringify(payload)) - KIRO_MAX_PAYLOAD_BYTES;
+      // Trim a bit extra to cover JSON-escaping growth and the marker line.
+      const cut = Math.min(uim.content.length, overflow + 1024);
+      const marker = "\n\n[... earlier content truncated to fit Kiro input limit ...]";
+      uim.content = uim.content.slice(0, Math.max(0, uim.content.length - cut)) + marker;
+    }
+  }
+
+  const endBytes = byteLen(JSON.stringify(payload));
+  log?.warn?.(
+    "KIRO_TRIM",
+    `payload ${startBytes}B → ${endBytes}B (limit ${KIRO_MAX_PAYLOAD_BYTES}B), dropped ${dropped} history turn(s)`
+  );
+  return true;
+}
+
+/**
  * Build Kiro payload from OpenAI format
  *
  * Two 9router-specific behaviours implemented here:
@@ -576,6 +641,12 @@ export function buildKiroPayload(model, body, stream, credentials) {
     value: upstreamModel,
     enumerable: false
   });
+
+  // Bound the serialized payload so CodeWhisperer doesn't 400 with
+  // CONTENT_LENGTH_EXCEEDS_THRESHOLD. Trims oldest history first, then
+  // (last resort) truncates the current message. Honors structured tool
+  // integrity so trimming never dangles a toolResult.
+  enforcePayloadBudget(payload, tools.length > 0, console);
 
   return payload;
 }
