@@ -1,4 +1,4 @@
-import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS } from "../config/errorConfig.js";
+import { ERROR_RULES, BACKOFF_CONFIG } from "../config/errorConfig.js";
 
 /**
  * Calculate exponential backoff cooldown for rate limits (429)
@@ -18,35 +18,50 @@ export function getQuotaCooldown(backoffLevel = 0) {
  * @param {number} status - HTTP status code
  * @param {string} errorText - Error message text
  * @param {number} backoffLevel - Current backoff level for exponential backoff
- * @returns {{ shouldFallback: boolean, cooldownMs: number, newBackoffLevel?: number }}
+ * @returns {{ shouldFallback: boolean, shouldMarkUnavailable: boolean, cooldownMs: number, newBackoffLevel?: number, scope?: string }}
  */
 export function checkFallbackError(status, errorText, backoffLevel = 0) {
   const lowerError = errorText
     ? (typeof errorText === "string" ? errorText : JSON.stringify(errorText)).toLowerCase()
     : "";
 
+  const toResult = (rule) => {
+    const shouldFallback = rule.shouldFallback !== false;
+    const shouldMarkUnavailable = rule.markUnavailable !== false;
+
+    if (rule.backoff) {
+      const newLevel = Math.min(backoffLevel + 1, BACKOFF_CONFIG.maxLevel);
+      return {
+        shouldFallback,
+        shouldMarkUnavailable,
+        cooldownMs: getQuotaCooldown(newLevel),
+        newBackoffLevel: newLevel,
+        scope: rule.scope,
+      };
+    }
+
+    return {
+      shouldFallback,
+      shouldMarkUnavailable,
+      cooldownMs: rule.cooldownMs || 0,
+      scope: rule.scope,
+    };
+  };
+
   for (const rule of ERROR_RULES) {
     // Text-based rule: match substring in error message
     if (rule.text && lowerError && lowerError.includes(rule.text)) {
-      if (rule.backoff) {
-        const newLevel = Math.min(backoffLevel + 1, BACKOFF_CONFIG.maxLevel);
-        return { shouldFallback: true, cooldownMs: getQuotaCooldown(newLevel), newBackoffLevel: newLevel };
-      }
-      return { shouldFallback: true, cooldownMs: rule.cooldownMs };
+      return toResult(rule);
     }
 
     // Status-based rule: match HTTP status code
     if (rule.status && rule.status === status) {
-      if (rule.backoff) {
-        const newLevel = Math.min(backoffLevel + 1, BACKOFF_CONFIG.maxLevel);
-        return { shouldFallback: true, cooldownMs: getQuotaCooldown(newLevel), newBackoffLevel: newLevel };
-      }
-      return { shouldFallback: true, cooldownMs: rule.cooldownMs };
+      return toResult(rule);
     }
   }
 
-  // Default: transient cooldown for any unmatched error
-  return { shouldFallback: true, cooldownMs: TRANSIENT_COOLDOWN_MS };
+  // Default: do not fan out unknown/client errors across every account.
+  return { shouldFallback: false, shouldMarkUnavailable: false, cooldownMs: 0 };
 }
 
 /**
@@ -203,7 +218,8 @@ export function applyErrorState(account, status, errorText) {
   if (!account) return account;
 
   const backoffLevel = account.backoffLevel || 0;
-  const { cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel);
+  const { shouldFallback, shouldMarkUnavailable, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel);
+  if (!shouldFallback && !shouldMarkUnavailable) return account;
 
   return {
     ...account,

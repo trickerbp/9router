@@ -18,6 +18,7 @@ const TARGET_HOSTS = [
   "cloudcode-pa.googleapis.com",
   "api.individual.githubcopilot.com",
   "q.us-east-1.amazonaws.com",
+  "q.eu-central-1.amazonaws.com",
   "api2.cursor.sh",
 ];
 
@@ -79,7 +80,7 @@ function getToolForHost(host) {
   const h = (host || "").split(":")[0];
   if (h === "api.individual.githubcopilot.com") return "copilot";
   if (h === "daily-cloudcode-pa.googleapis.com" || h === "cloudcode-pa.googleapis.com") return "antigravity";
-  if (h === "q.us-east-1.amazonaws.com") return "kiro";
+  if (/^q\.[a-z0-9-]+\.amazonaws\.com$/.test(h)) return "kiro";
   if (h === "api2.cursor.sh") return "cursor";
   return null;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import { Modal, Button, Input } from "@/shared/components";
 
@@ -17,6 +17,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
   const [importing, setImporting] = useState(false);
   const [autoDetecting, setAutoDetecting] = useState(false);
   const [autoDetected, setAutoDetected] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Auto-detect token when import method is selected
   useEffect(() => {
@@ -57,9 +58,36 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
     setError(null);
   };
 
+  const buildImportPayload = (raw) => {
+    const value = raw.trim();
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      // Plain refresh-token import remains supported.
+    }
+    return { refreshToken: value };
+  };
+
+  const handleImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      setRefreshToken(text);
+      setAutoDetected(false);
+      setError(null);
+    } catch {
+      setError("Failed to read JSON file");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   const handleImportToken = async () => {
     if (!refreshToken.trim()) {
-      setError("Please enter a refresh token");
+      setError("Please enter a refresh token or durable JSON");
       return;
     }
 
@@ -70,7 +98,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
       const res = await fetch("/api/oauth/kiro/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refreshToken: refreshToken.trim() }),
+        body: JSON.stringify(buildImportPayload(refreshToken)),
       });
 
       const data = await res.json();
@@ -184,7 +212,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
                 <div className="flex-1">
                   <h3 className="font-semibold mb-1">Import Token</h3>
                   <p className="text-sm text-text-muted">
-                    Paste refresh token from Kiro IDE.
+                    Paste refresh token or durable JSON from Kiro IDE.
                   </p>
                 </div>
               </div>
@@ -335,7 +363,7 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
                     <div className="flex gap-2">
                       <span className="material-symbols-outlined text-blue-600 dark:text-blue-400">info</span>
                       <p className="text-sm text-blue-800 dark:text-blue-200">
-                        Kiro IDE not detected. Please paste your refresh token manually.
+                        Kiro IDE not detected. Paste a refresh token or durable JSON manually.
                       </p>
                     </div>
                   </div>
@@ -343,14 +371,31 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
 
                 <div>
                   <label className="block text-sm font-medium mb-2">
-                    Refresh Token <span className="text-red-500">*</span>
+                    Token / Durable JSON <span className="text-red-500">*</span>
                   </label>
-                  <Input
+                  <textarea
                     value={refreshToken}
                     onChange={(e) => setRefreshToken(e.target.value)}
-                    placeholder="Token will be auto-filled..."
-                    className="font-mono text-sm"
+                    placeholder="Paste refresh token or durable JSON..."
+                    rows={8}
+                    className="w-full resize-y rounded-[10px] border border-transparent bg-surface-2 px-3 py-2.5 font-mono text-[13px] text-text-main placeholder-text-muted/70 focus:border-brand-500/40 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
                   />
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/json,.json"
+                    className="hidden"
+                    onChange={handleImportFile}
+                  />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    icon="upload_file"
+                    className="mt-2"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Upload JSON
+                  </Button>
                 </div>
 
                 {error && (

@@ -32,6 +32,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+.playwright-mcp/
 
 # env files (can opt-in for committing if needed)
 .env*
@@ -70,5 +71,12 @@ deploy*.sh
 ecosystem.config.*
 
 scripts/agSniffer/*
+scripts/vps_*.py
 gitbooks/*
 gitbook/README.md
+
+# local credentials / runtime databases
+*kiro-durable*.json
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

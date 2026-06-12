@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { refreshKiroToken } from "../services/tokenRefresh.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry } from "../config/runtimeConfig.js";
+import { buildKiroQUrl } from "../services/kiroRegion.js";
 
 /**
  * KiroExecutor - Executor for Kiro AI (AWS CodeWhisperer)
@@ -32,11 +33,15 @@ export class KiroExecutor extends BaseExecutor {
     return body;
   }
 
+  buildUrl(model, stream, urlIndex = 0, credentials = null) {
+    return buildKiroQUrl(credentials, "generateAssistantResponse");
+  }
+
   /**
    * Custom execute for Kiro - handles AWS EventStream binary response with retry support
    */
   async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
-    const url = this.buildUrl(model, stream, 0);
+    const url = this.buildUrl(model, stream, 0, credentials);
     const transformedBody = this.transformRequest(model, body, stream, credentials);
     
     // Merge default retry config with provider-specific config

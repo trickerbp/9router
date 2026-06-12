@@ -139,6 +139,8 @@ const standaloneRootResolved = path.join(buildDistDir, "standalone");
 const standaloneRootToUse = fs.existsSync(standaloneRootResolved) ? standaloneRootResolved : standaloneRoot;
 const standaloneApp = fs.existsSync(path.join(standaloneRootToUse, "server.js"))
   ? standaloneRootToUse
+  : fs.existsSync(path.join(standaloneRootToUse, "9router"))
+    ? path.join(standaloneRootToUse, "9router")
   : path.join(standaloneRootToUse, "app");
 if (!fs.existsSync(standaloneApp)) {
   console.error("❌ Next.js standalone build not found under .next/standalone");

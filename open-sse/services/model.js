@@ -1,3 +1,5 @@
+import { PROVIDER_MODELS } from "../config/providerModels.js";
+
 // Provider alias to ID mapping
 const ALIAS_TO_PROVIDER_ID = {
   cc: "claude",
@@ -248,6 +250,7 @@ export async function getModelInfoCore(modelStr, aliasesOrGetter) {
 function inferProviderFromModelName(modelName) {
   if (!modelName) return "openai";
   const m = modelName.toLowerCase();
+  if (isKnownCodexOnlyModel(m)) return "codex";
   if (m.startsWith("claude-")) return "anthropic";
   if (m.startsWith("gemini-")) return "gemini";
   if (m.startsWith("gpt-")) return "openai";
@@ -256,4 +259,12 @@ function inferProviderFromModelName(modelName) {
   if (m.startsWith("deepseek-")) return "openrouter";
   // Default fallback
   return "openai";
+}
+
+function isKnownCodexOnlyModel(modelName) {
+  const codexModels = PROVIDER_MODELS.cx || [];
+  const openaiModels = PROVIDER_MODELS.openai || [];
+  const isCodexKnown = codexModels.some((entry) => entry.id?.toLowerCase() === modelName);
+  const isOpenAIKnown = openaiModels.some((entry) => entry.id?.toLowerCase() === modelName);
+  return isCodexKnown && !isOpenAIKnown;
 }

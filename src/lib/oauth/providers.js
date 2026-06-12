@@ -6,6 +6,7 @@
 // Ensure outbound fetch respects HTTP(S)_PROXY/ALL_PROXY in Node runtime
 import "open-sse/index.js";
 import crypto from "crypto";
+import { regionFromProfileArn } from "open-sse/services/kiroRegion.js";
 
 import { generatePKCE, generateState } from "./utils/pkce";
 import {
@@ -972,16 +973,20 @@ const PROVIDERS = {
     },
     mapTokens: (tokens) => {
       const email = extractEmailFromAccessToken(tokens.access_token);
+      const profileArn = tokens?.profile_arn || null;
+      const oidcRegion = tokens._region || "us-east-1";
       const mapped = {
         accessToken: tokens.access_token,
         refreshToken: tokens.refresh_token,
         expiresIn: tokens.expires_in,
         email,
         providerSpecificData: {
-          profileArn: tokens?.profile_arn || null,
+          profileArn,
           clientId: tokens._clientId,
           clientSecret: tokens._clientSecret,
-          region: tokens._region || "us-east-1",
+          region: oidcRegion,
+          oidcRegion,
+          kiroRegion: regionFromProfileArn(profileArn) || oidcRegion,
           authMethod: tokens._authMethod || "builder-id",
           startUrl: tokens._startUrl || KIRO_CONFIG.startUrl,
         },

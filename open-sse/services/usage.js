@@ -4,6 +4,7 @@
 
 import { CLIENT_METADATA, getPlatformUserAgent } from "../config/appConstants.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
+import { buildKiroCodeWhispererUrl, buildKiroQUrl, resolveKiroRegion } from "./kiroRegion.js";
 
 // GitHub API config
 const GITHUB_CONFIG = {
@@ -775,9 +776,8 @@ function parseKiroQuotaData(data) {
 }
 
 async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = null) {
-  // Default profileArn fallback
-  const DEFAULT_PROFILE_ARN = "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX";
-  const profileArn = providerSpecificData?.profileArn || DEFAULT_PROFILE_ARN;
+  const region = resolveKiroRegion(providerSpecificData);
+  const profileArn = providerSpecificData?.profileArn || `arn:aws:codewhisperer:${region}:638616132270:profile/AAAACCCCXXXX`;
   const authMethod = providerSpecificData?.authMethod || "builder-id";
 
   const getUsageParams = new URLSearchParams({
@@ -791,7 +791,7 @@ async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = nu
     {
       name: "codewhisperer-get",
       run: async () => proxyAwareFetch(
-        `https://codewhisperer.us-east-1.amazonaws.com/getUsageLimits?${getUsageParams.toString()}`,
+        `${buildKiroCodeWhispererUrl(providerSpecificData, "getUsageLimits")}?${getUsageParams.toString()}`,
         {
           method: "GET",
           headers: {
@@ -806,7 +806,7 @@ async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = nu
     },
     {
       name: "codewhisperer-post",
-      run: async () => proxyAwareFetch("https://codewhisperer.us-east-1.amazonaws.com", {
+      run: async () => proxyAwareFetch(buildKiroCodeWhispererUrl(providerSpecificData), {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
@@ -829,7 +829,7 @@ async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = nu
           profileArn,
           resourceType: "AGENTIC_REQUEST",
         });
-        return proxyAwareFetch(`https://q.us-east-1.amazonaws.com/getUsageLimits?${params}`, {
+        return proxyAwareFetch(`${buildKiroQUrl(providerSpecificData, "getUsageLimits")}?${params}`, {
           method: "GET",
           headers: {
             "Authorization": `Bearer ${accessToken}`,

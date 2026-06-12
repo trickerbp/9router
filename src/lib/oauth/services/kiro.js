@@ -1,4 +1,5 @@
 import { KIRO_CONFIG } from "../constants/oauth.js";
+import { buildKiroCodeWhispererUrl, resolveKiroOidcRegion } from "open-sse/services/kiroRegion.js";
 
 /**
  * Kiro OAuth Service
@@ -172,10 +173,11 @@ export class KiroService {
    * Refresh token using refresh token
    */
   async refreshToken(refreshToken, providerSpecificData = {}) {
-    const { authMethod, clientId, clientSecret, region } = providerSpecificData;
+    const { clientId, clientSecret } = providerSpecificData;
 
     // AWS SSO OIDC refresh (Builder ID or IDC)
     if (clientId && clientSecret) {
+      const region = resolveKiroOidcRegion(providerSpecificData);
       const endpoint = `https://oidc.${region || "us-east-1"}.amazonaws.com/token`;
 
       const response = await fetch(endpoint, {
@@ -257,7 +259,7 @@ export class KiroService {
    * List available models from CodeWhisperer API
    */
   async listAvailableModels(accessToken, profileArn) {
-    const endpoint = "https://codewhisperer.us-east-1.amazonaws.com";
+    const endpoint = buildKiroCodeWhispererUrl({ profileArn });
     const target = "AmazonCodeWhispererService.ListAvailableModels";
 
     const response = await fetch(endpoint, {

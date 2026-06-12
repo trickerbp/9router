@@ -103,10 +103,9 @@ const MITM_BYPASS_HOSTS = [
   "cloudcode-pa.googleapis.com",
   "daily-cloudcode-pa.googleapis.com",
   "api.individual.githubcopilot.com",
-  "q.us-east-1.amazonaws.com",
-  "codewhisperer.us-east-1.amazonaws.com",
   "api2.cursor.sh",
 ];
+const MITM_BYPASS_AWS_HOST_RE = /^(q|codewhisperer)\.[a-z0-9-]+\.amazonaws\.com$/;
 const GOOGLE_DNS_SERVERS = ["8.8.8.8", "8.8.4.4"];
 const HTTPS_PORT = 443;
 const HTTP_SUCCESS_MIN = 200;
@@ -148,7 +147,7 @@ async function resolveRealIP(hostname) {
 function shouldBypassMitmDns(url) {
   try {
     const hostname = new URL(url).hostname;
-    return MITM_BYPASS_HOSTS.some(host => hostname.includes(host));
+    return MITM_BYPASS_AWS_HOST_RE.test(hostname) || MITM_BYPASS_HOSTS.some(host => hostname.includes(host));
   } catch { return false; }
 }
 

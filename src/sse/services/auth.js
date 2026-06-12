@@ -8,6 +8,23 @@ import * as log from "../utils/logger.js";
 // Mutex to prevent race conditions during account selection
 let selectionMutex = Promise.resolve();
 
+const AUTH_ERROR_PATTERNS = [
+  "token invalid",
+  "invalid or revoked",
+  "token expired",
+  "refresh failed",
+  "no access token",
+  "invalid api key",
+  "access denied",
+];
+
+function hasBlockingAuthError(connection) {
+  if (connection.testStatus !== "error" && connection.testStatus !== "unavailable") return false;
+  const msg = String(connection.lastError || "").toLowerCase();
+  if (!msg) return false;
+  return AUTH_ERROR_PATTERNS.some(pattern => msg.includes(pattern));
+}
+
 /**
  * Get provider credentials from localDb
  * Filters out unavailable accounts and returns the selected account based on strategy
@@ -60,9 +77,10 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       return null;
     }
 
-    // Filter out model-locked and excluded connections
+    // Filter out model-locked, excluded, and known-invalid auth connections
     const availableConnections = connections.filter(c => {
       if (excludeSet.has(c.id)) return false;
+      if (hasBlockingAuthError(c)) return false;
       if (isModelLockActive(c, model)) return false;
       return true;
     });
@@ -207,29 +225,32 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   const backoffLevel = conn?.backoffLevel || 0;
 
   // Provider-specific precise cooldown (e.g. codex usage_limit_reached resets_at) overrides backoff
-  let shouldFallback, cooldownMs, newBackoffLevel;
+  let shouldFallback, shouldMarkUnavailable, cooldownMs, newBackoffLevel, scope;
   if (resetsAtMs && resetsAtMs > Date.now()) {
     shouldFallback = true;
+    shouldMarkUnavailable = true;
     cooldownMs = Math.min(resetsAtMs - Date.now(), MAX_RATE_LIMIT_COOLDOWN_MS);
     newBackoffLevel = 0;
+    scope = "model";
   } else {
-    ({ shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel));
+    ({ shouldFallback, shouldMarkUnavailable, cooldownMs, newBackoffLevel, scope } = checkFallbackError(status, errorText, backoffLevel));
   }
-  if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
+  if (!shouldFallback && !shouldMarkUnavailable) return { shouldFallback: false, cooldownMs: 0 };
 
   const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
-  const lockUpdate = buildModelLockUpdate(model, cooldownMs);
+  const lockUpdate = cooldownMs > 0 ? buildModelLockUpdate(scope === "account" ? null : model, cooldownMs) : {};
+  const terminalAuthError = scope === "account" && !shouldFallback;
 
   await updateProviderConnection(connectionId, {
     ...lockUpdate,
-    testStatus: "unavailable",
+    testStatus: terminalAuthError ? "error" : "unavailable",
     lastError: reason,
     errorCode: status,
     lastErrorAt: new Date().toISOString(),
     backoffLevel: newBackoffLevel ?? backoffLevel
   });
 
-  const lockKey = Object.keys(lockUpdate)[0];
+  const lockKey = Object.keys(lockUpdate)[0] || "no-lock";
   const connName = conn?.displayName || conn?.name || conn?.email || connectionId.slice(0, 8);
   log.warn("AUTH", `${connName} locked ${lockKey} for ${Math.round(cooldownMs / 1000)}s [${status}]`);
 
@@ -237,7 +258,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     console.error(`❌ ${provider} [${status}]: ${reason}`);
   }
 
-  return { shouldFallback: true, cooldownMs };
+  return { shouldFallback, cooldownMs };
 }
 
 /**

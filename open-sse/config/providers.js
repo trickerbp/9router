@@ -192,7 +192,7 @@ export const PROVIDERS = {
     clientId: "Iv1.b507a08c87ecfe98"
   },
   kiro: {
-    baseUrl: "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse",
+    baseUrl: "https://q.us-east-1.amazonaws.com/generateAssistantResponse",
     format: "kiro",
     retry: { 429: 2 },
     headers: {
