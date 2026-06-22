@@ -91,6 +91,9 @@ export const PROVIDER_MODELS = {
     { id: "claude-opus-4-6-thinking", name: "Claude Opus 4.6 (Thinking)" },
     { id: "gpt-oss-120b-medium", name: "GPT-OSS 120B (Medium)" },
     { id: "gemini-3-flash", name: "Gemini 3 Flash", thinking: false }, // command model; AG strips thinking
+    // Image generation models (native via Antigravity v1internal:generateContent)
+    { id: "gemini-3.1-flash-image", name: "Gemini 3.1 Flash (Image)", type: "image", capabilities: ["text2img", "edit"], params: [] },
+    { id: "gemini-3-pro-image", name: "Gemini 3 Pro (Image)", type: "image", capabilities: ["text2img", "edit"], params: [] },
   ],
   gh: [  // GitHub Copilot - OpenAI models
     { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo" },
@@ -210,6 +213,28 @@ export const PROVIDER_MODELS = {
     // { id: "big-pickle", name: "Big Pickle", targetFormat: "claude" },
     // { id: "minimax-m2.5-free", name: "MiniMax M2.5", targetFormat: "claude" },
     // { id: "trinity-large-preview-free", name: "Trinity Large Preview" },
+  ],
+
+  mmf: [  // MiMo Free (no-auth) — free channel only exposes the auto-routing model
+    { id: "mimo-auto", name: "MiMo Auto" },
+  ],
+
+  cb: [  // CodeBuddy CN (copilot.tencent.com) — unified OpenAI-compatible gateway
+    { id: "glm-5.2", name: "GLM-5.2" },
+    { id: "glm-5.1", name: "GLM-5.1" },
+    { id: "glm-5.0", name: "GLM-5.0" },
+    { id: "glm-5.0-turbo", name: "GLM-5.0-Turbo" },
+    { id: "glm-5v-turbo", name: "GLM-5v-Turbo" },
+    { id: "glm-4.7", name: "GLM-4.7" },
+    { id: "minimax-m3", name: "MiniMax-M3" },
+    { id: "minimax-m2.7", name: "MiniMax-M2.7" },
+    { id: "kimi-k2.7", name: "Kimi-K2.7-Code" },
+    { id: "kimi-k2.6", name: "Kimi-K2.6" },
+    { id: "kimi-k2.5", name: "Kimi-K2.5" },
+    { id: "hy3-preview", name: "Hy3 Preview" },
+    { id: "deepseek-v4-pro", name: "DeepSeek-V4-Pro" },
+    { id: "deepseek-v4-flash", name: "DeepSeek-V4-Flash" },
+    { id: "deepseek-v3-2-volc", name: "DeepSeek-V3.2" },
   ],
 
   cl: [  // Cline
@@ -897,6 +922,8 @@ const OAUTH_ALIASES = {
   cline: "cl",
   opencode: "oc",
   qoder: "qd",
+  codebuddy: "cb",
+  "mimo-free": "mmf",
   vertex: "vertex",
   "vertex-partner": "vertex-partner",
 };

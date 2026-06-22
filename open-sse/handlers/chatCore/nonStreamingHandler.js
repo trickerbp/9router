@@ -30,6 +30,12 @@ export function translateNonStreamingResponse(responseBody, targetFormat, source
       for (const part of content.parts) {
         if (part.thought === true && part.text) reasoningContent += part.text;
         else if (part.text !== undefined) textContent += part.text;
+        // Handle inline image data (from image generation models)
+        const inlineData = part.inlineData || part.inline_data;
+        if (inlineData?.data) {
+          const mimeType = inlineData.mimeType || inlineData.mime_type || "image/png";
+          textContent += `\n![image](data:${mimeType};base64,${inlineData.data})\n`;
+        }
         if (part.functionCall) {
           toolCalls.push({
             id: `call_${part.functionCall.name}_${Date.now()}_${toolCalls.length}`,

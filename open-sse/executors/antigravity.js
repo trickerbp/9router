@@ -18,6 +18,40 @@ function sanitizeFunctionName(name) {
 const MAX_RETRY_AFTER_MS = 10000;
 const MAX_ANTIGRAVITY_OUTPUT_TOKENS = 16384;
 
+// Image generation model name patterns
+const IMAGE_MODEL_PATTERNS = [
+  /image/i,
+  /imagen/i,
+  /image-generation/i,
+];
+
+// Detect if a model is an image generation model
+function isImageModel(model) {
+  if (!model) return false;
+  return IMAGE_MODEL_PATTERNS.some(p => p.test(model));
+}
+
+// Parse aspect ratio / resolution from model name suffixes
+// e.g. "gemini-3.1-flash-image-16x9" -> { aspectRatio: "16:9" }
+// e.g. "gemini-3.1-flash-image-1024x768" -> { aspectRatio: "4:3" }
+function parseImageConfig(model) {
+  const config = { aspectRatio: "1:1" };
+  const resMatch = model.match(/(\d+)x(\d+)$/);
+  if (resMatch) {
+    const w = parseInt(resMatch[1]);
+    const h = parseInt(resMatch[2]);
+    if (w <= 16 && h <= 16) {
+      config.aspectRatio = `${w}:${h}`;
+    } else {
+      // Resolution like 1024x768 — derive aspect ratio
+      const gcd = (a, b) => b ? gcd(b, a % b) : a;
+      const d = gcd(w, h);
+      config.aspectRatio = `${w / d}:${h / d}`;
+    }
+  }
+  return config;
+}
+
 export class AntigravityExecutor extends BaseExecutor {
   constructor() {
     super("antigravity", PROVIDERS.antigravity);
@@ -26,7 +60,9 @@ export class AntigravityExecutor extends BaseExecutor {
   buildUrl(model, stream, urlIndex = 0) {
     const baseUrls = this.getBaseUrls();
     const baseUrl = baseUrls[urlIndex] || baseUrls[0];
-    const action = stream ? "streamGenerateContent?alt=sse" : "generateContent";
+    // Image generation MUST use non-streaming generateContent
+    const forceNonStream = isImageModel(model);
+    const action = (stream && !forceNonStream) ? "streamGenerateContent?alt=sse" : "generateContent";
     return `${baseUrl}/v1internal:${action}`;
   }
 
@@ -44,6 +80,44 @@ export class AntigravityExecutor extends BaseExecutor {
   transformRequest(model, body, stream, credentials) {
     const projectId = credentials?.projectId || this.generateProjectId();
 
+    // ─── Image generation: completely different request structure ───
+    if (isImageModel(model)) {
+      const imageConfig = parseImageConfig(model);
+      // Strip model name suffixes for the actual API model name
+      const cleanModel = model.replace(/-(\d+)x(\d+)$/, "");
+
+      // Build simplified contents — text-only, merge all user messages
+      const imageContents = [];
+      const srcContents = body.request?.contents || body.contents || [];
+      for (const c of srcContents) {
+        const textParts = (c.parts || []).filter(p => p.text !== undefined).map(p => ({ text: p.text }));
+        if (textParts.length > 0) {
+          imageContents.push({ role: c.role || "user", parts: textParts });
+        }
+      }
+
+      return {
+        project: projectId,
+        model: cleanModel,
+        userAgent: "antigravity",
+        requestType: "image_gen",
+        requestId: `agent-${crypto.randomUUID()}`,
+        request: {
+          contents: imageContents,
+          generationConfig: {
+            temperature: 1.0,
+            topP: 0.95,
+            topK: 40,
+            maxOutputTokens: 8192,
+            imageConfig,
+          },
+          sessionId: body.request?.sessionId || deriveSessionId(credentials?.email || credentials?.connectionId),
+          // No tools, no systemInstruction, no safetySettings for image gen
+        },
+      };
+    }
+
+    // ─── Standard (non-image) request ───
     // Fix contents for Claude models via Antigravity
     const contents = body.request?.contents?.map(c => {
       let role = c.role;

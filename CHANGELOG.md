@@ -1,3 +1,21 @@
+# v0.5.8 (2026-06-22)
+
+## Features
+- **Combo Fusion strategy**: new combo mode that fans a prompt out to every panel model in parallel, then a judge model synthesizes one answer from all responses (quorum-grace collection caps the straggler penalty; degrades to direct answer when only one panel model succeeds). Pick it per-combo on the Combos page; optional judge-model picker. (upstream #1)
+- **Claude auto-ping**: optionally keep a Claude OAuth account's 5h quota window warm by auto-sending a tiny request the moment the window resets. Toggle per-connection on the provider page. (upstream)
+- **Antigravity native image generation**: image models (kind=image) route through the executor with a dedicated image_gen request envelope; inline image data renders as markdown in chat responses. (upstream)
+- **MiMo Free provider**: no-auth Xiaomi MiMo free channel (mimo-auto) with device-fingerprint JWT bootstrap, session affinity, anti-abuse system marker, and Chrome User-Agent rotation. (upstream #1789)
+- **CodeBuddy CN provider**: enabled the Tencent CodeBuddy (copilot.tencent.com) OAuth+apikey provider — GET-poll auth flow, forced-stream chat with SSE→JSON re-aggregation, OpenAI-style reasoning, and a 15-model catalog (GLM/Kimi/MiniMax/DeepSeek/Hunyuan). (upstream)
+
+## Fixes
+- **Codex auth**: fix accounts getting permanently locked after a transient 401/403. `hasBlockingAuthError` now applies a 10-minute recovery window keyed on `lastErrorAt`, so a connection that hit a one-off auth error can retry itself instead of being filtered out forever (the only path that cleared the error state ran on a successful request the account could never reach). Genuinely dead tokens re-block after one cheap probe; no more delete-and-re-login for transient blips.
+- **Codex tools**: preserve Responses-native freeform `custom` tools (e.g. grammar-backed `apply_patch`) and hosted `tool_search` through `normalizeCodexTools` so they reach the upstream Codex Responses API intact. (upstream #1907)
+- **Usage logs**: add missing `await` on `getAdapter()` in `getRecentLogs` — `/api/usage/logs` and `/api/usage/request-logs` were silently returning empty. (upstream)
+- **Executors**: strip params unsupported by provider/model — drops deprecated `temperature` for `claude-opus-4` models that Anthropic rejects with 400. (upstream #1748)
+- **Kiro security**: validate AWS region against an allowlist pattern before interpolating it into upstream URLs, centrally in `kiroRegion.js` (covers all URL builders + OIDC refresh). Prevents SSRF via region injection. (GHSA-6mwv-4mrm-5p3m)
+- **CLI build**: detect Next.js 16 nested standalone output (`standalone/<pkg>/server.js`) dynamically via `path.basename`, replacing the hardcoded `9router` dir name so a renamed project still builds. (upstream #1940)
+- **Routing**: add `/responses` → `/api/v1/responses` rewrite so Codex-style clients can hit the bare endpoint. (upstream)
+
 # v0.4.71 (2026-06-06)
 
 ## Features

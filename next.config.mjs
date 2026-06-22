@@ -57,6 +57,10 @@ const nextConfig = {
         destination: "/api/v1/responses"
       },
       {
+        source: "/responses",
+        destination: "/api/v1/responses"
+      },
+      {
         source: "/v1/:path*",
         destination: "/api/v1/:path*"
       },

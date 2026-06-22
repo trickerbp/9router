@@ -27,7 +27,7 @@ const CLAUDE_API_HEADERS = {
 };
 
 // Full Claude CLI fingerprint — required by providers that gate on client identity (e.g. agentrouter)
-const CLAUDE_CLI_SPOOF_HEADERS = {
+export const CLAUDE_CLI_SPOOF_HEADERS = {
   "Anthropic-Version": "2023-06-01",
   "Anthropic-Beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,prompt-caching-scope-2026-01-05,advanced-tool-use-2025-11-20,effort-2025-11-24,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12,token-efficient-tools-2026-03-28",
   "Anthropic-Dangerous-Direct-Browser-Access": "true",
@@ -357,8 +357,16 @@ export const PROVIDERS = {
   },
   // CodeBuddy (Tencent) - uses device_code polling auth, no chat completions baseUrl needed
   codebuddy: {
-    baseUrl: "https://copilot.tencent.com/v1/chat/completions",
+    baseUrl: "https://copilot.tencent.com/v2/chat/completions",
     format: "openai",
+    headers: {
+      "User-Agent": "CLI/2.108.1 CodeBuddy/2.108.1",
+      "X-Product": "SaaS",
+      "X-IDE-Type": "CLI",
+      "X-IDE-Name": "CLI",
+      "x-requested-with": "XMLHttpRequest",
+      "x-codebuddy-request": "1",
+    },
   },
   opencode: {
     baseUrl: "https://opencode.ai",
@@ -395,6 +403,8 @@ export const PROVIDERS = {
     baseUrl: "https://api.xiaomimimo.com/v1/chat/completions",
     format: "openai"
   },
+  "mimo-free": { baseUrl: "https://api.xiaomimimo.com/api/free-ai/openai/chat", format: "openai", noAuth: true },
+  mmf: { baseUrl: "https://api.xiaomimimo.com/api/free-ai/openai/chat", format: "openai", noAuth: true },
   "xiaomi-tokenplan": {
     baseUrl: "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions",
     format: "openai"

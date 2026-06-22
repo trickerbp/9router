@@ -18,11 +18,25 @@ const AUTH_ERROR_PATTERNS = [
   "access denied",
 ];
 
-function hasBlockingAuthError(connection) {
+// Auth errors block an account, but only for a recovery window after the last
+// error — otherwise a single transient 401/403 (network blip, clock skew,
+// provider hiccup) would pin a connection in "error" forever, since the only
+// place that clears the error state (clearAccountError) runs on a *successful*
+// request the account can never reach while filtered out. After the window we
+// let it retry once; if the token is genuinely dead it errors again and
+// re-blocks for another window (one cheap probe request, not a re-login).
+const AUTH_ERROR_RECOVERY_MS = 10 * 60 * 1000;
+
+export function hasBlockingAuthError(connection) {
   if (connection.testStatus !== "error" && connection.testStatus !== "unavailable") return false;
   const msg = String(connection.lastError || "").toLowerCase();
   if (!msg) return false;
-  return AUTH_ERROR_PATTERNS.some(pattern => msg.includes(pattern));
+  if (!AUTH_ERROR_PATTERNS.some(pattern => msg.includes(pattern))) return false;
+
+  // Allow a retry once the recovery window has elapsed since the last error.
+  const lastErrorMs = connection.lastErrorAt ? new Date(connection.lastErrorAt).getTime() : 0;
+  if (lastErrorMs && Date.now() - lastErrorMs >= AUTH_ERROR_RECOVERY_MS) return false;
+  return true;
 }
 
 /**

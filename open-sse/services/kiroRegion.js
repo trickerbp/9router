@@ -1,6 +1,11 @@
 export const DEFAULT_KIRO_REGION = "us-east-1";
 export const DEFAULT_KIRO_OIDC_REGION = "us-east-1";
 
+// AWS region allowlist pattern — prevents SSRF via region injection into upstream
+// URLs (GHSA-6mwv-4mrm-5p3m). Any value that isn't a well-formed AWS region is
+// rejected centrally here, so every URL builder + OIDC refresh path is covered.
+export const AWS_REGION_PATTERN = /^[a-z]{2}-[a-z]+-\d{1,2}$/;
+
 export function regionFromProfileArn(profileArn) {
   if (!profileArn || typeof profileArn !== "string") return null;
   const parts = profileArn.split(":");
@@ -9,7 +14,10 @@ export function regionFromProfileArn(profileArn) {
 }
 
 function normalizeRegion(region) {
-  return typeof region === "string" && region.trim() ? region.trim() : null;
+  if (typeof region !== "string") return null;
+  const trimmed = region.trim();
+  if (!trimmed || !AWS_REGION_PATTERN.test(trimmed)) return null;
+  return trimmed;
 }
 
 function getProviderData(input) {
@@ -26,7 +34,7 @@ export function resolveKiroRegion(input) {
     || normalizeRegion(data.kirRegion)
     || normalizeRegion(data.qRegion)
     || normalizeRegion(data.q_region)
-    || regionFromProfileArn(data.profileArn || data.profile_arn)
+    || normalizeRegion(regionFromProfileArn(data.profileArn || data.profile_arn))
     || normalizeRegion(data.region)
     || DEFAULT_KIRO_REGION;
 }
