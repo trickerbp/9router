@@ -43,6 +43,9 @@ function normalizeImportPayload(rawBody) {
     authMethod: pick(body, "authMethod", "auth_method") || pick(psd, "authMethod") || "imported",
     providerName: pick(body, "provider") || pick(psd, "provider"),
     startUrl: pick(body, "startUrl", "start_url") || pick(psd, "startUrl"),
+    tokenEndpoint: pick(body, "tokenEndpoint", "token_endpoint") || pick(psd, "tokenEndpoint"),
+    issuerUrl: pick(body, "issuerUrl", "issuer_url") || pick(psd, "issuerUrl"),
+    scopes: pick(body, "scopes", "scope") || pick(psd, "scopes"),
     oidcRegion,
     kiroRegion,
   };
@@ -76,20 +79,72 @@ export async function POST(request) {
     const kiroService = new KiroService();
 
     let tokenData;
+    let tokenRefreshed = false;
     const refreshToken = imported.refreshToken.trim();
+    const isExternalIdp = imported.authMethod === "external_idp"
+      || (!!imported.tokenEndpoint && !!imported.clientId && !imported.clientSecret);
+
     const durablePsd = {
       profileArn: imported.profileArn,
       clientId: imported.clientId,
       clientSecret: imported.clientSecret,
-      authMethod: imported.authMethod,
-      provider: imported.providerName || (imported.authMethod === "idc" ? "AWS IAM Identity Center" : "Imported"),
+      authMethod: isExternalIdp ? "external_idp" : imported.authMethod,
+      provider: imported.providerName
+        || (isExternalIdp ? "External IdP" : imported.authMethod === "idc" ? "AWS IAM Identity Center" : "Imported"),
       startUrl: imported.startUrl,
       region: imported.oidcRegion,
       oidcRegion: imported.oidcRegion,
       kiroRegion: imported.kiroRegion,
+      tokenEndpoint: imported.tokenEndpoint,
+      issuerUrl: imported.issuerUrl,
+      scopes: imported.scopes,
     };
 
-    if (imported.clientId && imported.clientSecret) {
+    if (isExternalIdp) {
+      // Microsoft 365 / Entra ID: refresh against the IdP token endpoint to
+      // validate the refresh token and obtain a fresh access token.
+      try {
+        const refreshed = await kiroService.refreshToken(refreshToken, durablePsd);
+        tokenData = {
+          accessToken: refreshed.accessToken || imported.accessToken,
+          refreshToken: refreshed.refreshToken || refreshToken,
+          expiresIn: refreshed.expiresIn || imported.expiresIn || 3600,
+          profileArn: imported.profileArn,
+          authMethod: "external_idp",
+        };
+        tokenRefreshed = !!refreshed.accessToken;
+      } catch (error) {
+        if (!imported.accessToken) throw error;
+        // Fall back to the supplied (still-valid) access token if refresh fails.
+        tokenData = {
+          accessToken: imported.accessToken,
+          refreshToken,
+          expiresIn: imported.expiresIn || 3600,
+          profileArn: imported.profileArn,
+          authMethod: "external_idp",
+        };
+      }
+
+      // External IdP tokens carry no profile ARN; resolve it via
+      // ListAvailableProfiles when the caller didn't supply one.
+      if (!tokenData.profileArn && tokenData.accessToken) {
+        try {
+          const resolvedArn = await kiroService.listAvailableProfiles(
+            tokenData.accessToken,
+            imported.kiroRegion || "us-east-1",
+            true
+          );
+          if (resolvedArn) {
+            tokenData.profileArn = resolvedArn;
+            durablePsd.profileArn = resolvedArn;
+            const resolvedRegion = regionFromProfileArn(resolvedArn);
+            if (resolvedRegion) durablePsd.kiroRegion = resolvedRegion;
+          }
+        } catch (error) {
+          console.log("Kiro external IdP profile ARN resolution failed:", error.message);
+        }
+      }
+    } else if (imported.clientId && imported.clientSecret) {
       try {
         const refreshed = await kiroService.refreshToken(refreshToken, durablePsd);
         tokenData = {
@@ -99,6 +154,7 @@ export async function POST(request) {
           profileArn: imported.profileArn,
           authMethod: imported.authMethod || "idc",
         };
+        tokenRefreshed = !!refreshed.accessToken;
       } catch (error) {
         if (!imported.accessToken) throw error;
         tokenData = {
@@ -123,7 +179,10 @@ export async function POST(request) {
       authType: "oauth",
       accessToken: tokenData.accessToken,
       refreshToken: tokenData.refreshToken,
-      expiresAt: getExpiresAt({ expiresAt: imported.expiresAt, expiresIn: tokenData.expiresIn || imported.expiresIn }),
+      expiresAt: getExpiresAt({
+        expiresAt: tokenRefreshed ? null : imported.expiresAt,
+        expiresIn: tokenData.expiresIn || imported.expiresIn,
+      }),
       email: email || null,
       providerSpecificData: {
         ...durablePsd,

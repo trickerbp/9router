@@ -25,6 +25,29 @@ export async function GET() {
     // Look for kiro-auth-token.json or any .json file with refreshToken
     let refreshToken = null;
     let foundFile = null;
+    let durable = null;
+
+    // Build a durable import payload from a parsed kiro-auth-token.json that
+    // carries External IdP (Microsoft 365 / Entra) metadata. Returns null when
+    // the file is not an external_idp credential.
+    const buildExternalIdpDurable = (data) => {
+      const isExternalIdp =
+        data?.authMethod === "external_idp" ||
+        data?.provider === "ExternalIdp" ||
+        (!!data?.tokenEndpoint && !!data?.clientId && !data?.clientSecret);
+      if (!isExternalIdp || !data?.refreshToken) return null;
+      return {
+        refreshToken: data.refreshToken,
+        accessToken: data.accessToken || null,
+        authMethod: "external_idp",
+        clientId: data.clientId || null,
+        tokenEndpoint: data.tokenEndpoint || null,
+        issuerUrl: data.issuerUrl || null,
+        scopes: data.scopes || null,
+        expiresAt: data.expiresAt || null,
+        provider: "External IdP",
+      };
+    };
 
     // First try kiro-auth-token.json
     const kiroTokenFile = "kiro-auth-token.json";
@@ -32,7 +55,12 @@ export async function GET() {
       try {
         const content = await readFile(join(cachePath, kiroTokenFile), "utf-8");
         const data = JSON.parse(content);
-        if (data.refreshToken && data.refreshToken.startsWith("aorAAAAAG")) {
+        const externalIdpDurable = buildExternalIdpDurable(data);
+        if (externalIdpDurable) {
+          durable = externalIdpDurable;
+          refreshToken = data.refreshToken;
+          foundFile = kiroTokenFile;
+        } else if (data.refreshToken && data.refreshToken.startsWith("aorAAAAAG")) {
           refreshToken = data.refreshToken;
           foundFile = kiroTokenFile;
         }
@@ -50,7 +78,15 @@ export async function GET() {
           const content = await readFile(join(cachePath, file), "utf-8");
           const data = JSON.parse(content);
 
-          // Look for Kiro refresh token (starts with aorAAAAAG)
+          const externalIdpDurable = buildExternalIdpDurable(data);
+          if (externalIdpDurable) {
+            durable = externalIdpDurable;
+            refreshToken = data.refreshToken;
+            foundFile = file;
+            break;
+          }
+
+          // Look for Kiro social refresh token (starts with aorAAAAAG)
           if (data.refreshToken && data.refreshToken.startsWith("aorAAAAAG")) {
             refreshToken = data.refreshToken;
             foundFile = file;
@@ -73,6 +109,10 @@ export async function GET() {
     return NextResponse.json({
       found: true,
       refreshToken,
+      // For External IdP credentials the bare refresh token is not enough to
+      // import; the durable payload carries the IdP token endpoint, client id
+      // and scopes the import + refresh paths require.
+      durable: durable || null,
       source: foundFile,
     });
   } catch (error) {

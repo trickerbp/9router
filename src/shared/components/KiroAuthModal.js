@@ -33,7 +33,9 @@ export default function KiroAuthModal({ isOpen, onMethodSelect, onClose }) {
         const data = await res.json();
 
         if (data.found) {
-          setRefreshToken(data.refreshToken);
+          // External IdP credentials need the full durable payload (token
+          // endpoint, client id, scopes); a bare refresh token won't import.
+          setRefreshToken(data.durable ? JSON.stringify(data.durable, null, 2) : data.refreshToken);
           setAutoDetected(true);
         } else {
           setError(data.error || "Could not auto-detect token");

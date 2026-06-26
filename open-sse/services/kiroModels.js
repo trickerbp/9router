@@ -70,7 +70,7 @@ function buildKiroFingerprintHeaders(credentials) {
     `KiroIDE-${KIRO_VERSION}-${machineId}`;
   const amzUserAgent = `aws-sdk-js/${KIRO_RUNTIME_SDK_VERSION} KiroIDE-${KIRO_VERSION}-${machineId}`;
 
-  return {
+  const headers = {
     "User-Agent": userAgent,
     "x-amz-user-agent": amzUserAgent,
     "x-amzn-kiro-agent-mode": "vibe",
@@ -79,6 +79,14 @@ function buildKiroFingerprintHeaders(credentials) {
     "amz-sdk-invocation-id": uuidv4(),
     "Accept": "application/json"
   };
+
+  // External IdP (Microsoft 365 / Entra) tokens must be tagged so AWS
+  // CodeWhisperer validates them against the federated profile.
+  if (credentials?.providerSpecificData?.authMethod === "external_idp") {
+    headers["TokenType"] = "EXTERNAL_IDP";
+  }
+
+  return headers;
 }
 
 /**

@@ -26,6 +26,12 @@ export class KiroExecutor extends BaseExecutor {
       headers["Authorization"] = `Bearer ${credentials.accessToken}`;
     }
 
+    // External IdP (Microsoft 365 / Entra) tokens require this header so AWS
+    // CodeWhisperer validates them against the federated profile.
+    if (credentials?.providerSpecificData?.authMethod === "external_idp") {
+      headers["TokenType"] = "EXTERNAL_IDP";
+    }
+
     return headers;
   }
 

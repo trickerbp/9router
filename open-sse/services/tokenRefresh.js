@@ -366,7 +366,8 @@ export async function refreshCodexToken(refreshToken, log) {
 
 /**
  * Specialized refresh for Kiro (AWS CodeWhisperer) tokens
- * Supports both AWS SSO OIDC (Builder ID/IDC) and Social Auth (Google/GitHub)
+ * Supports AWS SSO OIDC (Builder ID/IDC), External IdP (Microsoft 365 / Entra),
+ * and Social Auth (Google/GitHub).
  */
 export async function refreshKiroToken(refreshToken, providerSpecificData, log, proxyOptions = null) {
   if (!refreshToken) return null;
@@ -414,6 +415,54 @@ export async function refreshKiroToken(refreshToken, providerSpecificData, log, 
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken || refreshToken,
       expiresIn: tokens.expiresIn,
+    };
+  }
+
+  // External IdP (Microsoft 365 / Entra ID) - refresh against the IdP's own
+  // OIDC token endpoint (public client, form-encoded, snake_case response).
+  const tokenEndpoint = providerSpecificData?.tokenEndpoint;
+  if (providerSpecificData?.authMethod === "external_idp" || (tokenEndpoint && clientId)) {
+    if (!tokenEndpoint || !clientId) {
+      log?.error?.("TOKEN_REFRESH", "Kiro external IdP refresh missing tokenEndpoint or clientId");
+      return null;
+    }
+
+    const form = new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: clientId,
+      refresh_token: refreshToken,
+    });
+    if (providerSpecificData?.scopes) form.set("scope", providerSpecificData.scopes);
+
+    const response = await proxyAwareFetch(tokenEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: form.toString(),
+    }, proxyOptions);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      log?.error?.("TOKEN_REFRESH", "Failed to refresh Kiro external IdP token", {
+        status: response.status,
+        error: errorText,
+      });
+      return null;
+    }
+
+    const tokens = await response.json();
+
+    log?.info?.("TOKEN_REFRESH", "Successfully refreshed Kiro external IdP token", {
+      hasNewAccessToken: !!tokens.access_token,
+      expiresIn: tokens.expires_in,
+    });
+
+    return {
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token || refreshToken,
+      expiresIn: tokens.expires_in,
     };
   }
 

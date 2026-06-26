@@ -780,6 +780,10 @@ async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = nu
   const profileArn = providerSpecificData?.profileArn || `arn:aws:codewhisperer:${region}:638616132270:profile/AAAACCCCXXXX`;
   const authMethod = providerSpecificData?.authMethod || "builder-id";
 
+  // External IdP (Microsoft 365 / Entra) tokens must be tagged so AWS
+  // CodeWhisperer validates them against the federated profile.
+  const idpHeaders = authMethod === "external_idp" ? { "TokenType": "EXTERNAL_IDP" } : {};
+
   const getUsageParams = new URLSearchParams({
     isEmailRequired: "true",
     origin: "AI_EDITOR",
@@ -799,6 +803,7 @@ async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = nu
             "Accept": "application/json",
             "x-amz-user-agent": "aws-sdk-js/1.0.0 KiroIDE",
             "user-agent": "aws-sdk-js/1.0.0 KiroIDE",
+            ...idpHeaders,
           },
         },
         proxyOptions
@@ -813,6 +818,7 @@ async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = nu
           "Content-Type": "application/x-amz-json-1.0",
           "x-amz-target": "AmazonCodeWhispererService.GetUsageLimits",
           "Accept": "application/json",
+          ...idpHeaders,
         },
         body: JSON.stringify({
           origin: "AI_EDITOR",
@@ -834,6 +840,7 @@ async function getKiroUsage(accessToken, providerSpecificData, proxyOptions = nu
           headers: {
             "Authorization": `Bearer ${accessToken}`,
             "Accept": "application/json",
+            ...idpHeaders,
           },
         }, proxyOptions);
       },

@@ -7,7 +7,8 @@ import { buildKiroCodeWhispererUrl, resolveKiroOidcRegion } from "open-sse/servi
  * 1. AWS Builder ID (Device Code Flow)
  * 2. AWS IAM Identity Center/IDC (Device Code Flow)
  * 3. Google/GitHub Social Login (Authorization Code Flow + Manual Callback)
- * 4. Import Token (Manual refresh token paste)
+ * 4. External IdP / Microsoft 365 / Entra ID (refresh via IdP token endpoint)
+ * 5. Import Token (Manual refresh token paste)
  */
 
 const KIRO_AUTH_SERVICE = "https://prod.us-east-1.auth.desktop.kiro.dev";
@@ -206,6 +207,44 @@ export class KiroService {
       };
     }
 
+    // External IdP (Microsoft 365 / Entra ID) refresh against the IdP's own
+    // OIDC token endpoint (public client, form-encoded, snake_case response).
+    const tokenEndpoint = providerSpecificData?.tokenEndpoint;
+    const externalClientId = providerSpecificData?.clientId;
+    if (providerSpecificData?.authMethod === "external_idp" || (tokenEndpoint && externalClientId)) {
+      if (!tokenEndpoint || !externalClientId) {
+        throw new Error("External IdP Kiro refresh requires tokenEndpoint and clientId");
+      }
+
+      const form = new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: externalClientId,
+        refresh_token: refreshToken,
+      });
+      if (providerSpecificData?.scopes) form.set("scope", providerSpecificData.scopes);
+
+      const response = await fetch(tokenEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        },
+        body: form.toString(),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Token refresh failed: ${error}`);
+      }
+
+      const data = await response.json();
+      return {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || refreshToken,
+        expiresIn: data.expires_in,
+      };
+    }
+
     // Social auth refresh (Google/GitHub)
     const response = await fetch(`${KIRO_AUTH_SERVICE}/refreshToken`, {
       method: "POST",
@@ -229,6 +268,48 @@ export class KiroService {
       profileArn: data.profileArn,
       expiresIn: data.expiresIn || 3600,
     };
+  }
+
+  /**
+   * Resolve the CodeWhisperer profile ARN for a credential via
+   * ListAvailableProfiles. External IdP tokens MUST send the
+   * `TokenType: EXTERNAL_IDP` header or AWS returns an empty profile list.
+   * Returns the first available profile ARN, or null when none are found.
+   */
+  async listAvailableProfiles(accessToken, region = "us-east-1", externalIdp = false) {
+    if (!accessToken || typeof accessToken !== "string") {
+      throw new Error("access token is required to resolve profile ARN");
+    }
+
+    const endpoint = `https://q.${region}.amazonaws.com/`;
+    const headers = {
+      "Content-Type": "application/x-amz-json-1.0",
+      "Accept": "application/x-amz-json-1.0",
+      "Authorization": `Bearer ${accessToken}`,
+      "X-Amz-Target": "AmazonCodeWhispererService.ListAvailableProfiles",
+      "amz-sdk-request": "attempt=1; max=1",
+      "x-amzn-kiro-agent-mode": "vibe",
+      "x-amzn-codewhisperer-optout": "true",
+    };
+    if (externalIdp) headers["TokenType"] = "EXTERNAL_IDP";
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: "{}",
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Failed to list profiles: ${error}`);
+    }
+
+    const data = await response.json();
+    for (const profile of data?.profiles || []) {
+      const arn = (profile?.arn || "").trim();
+      if (arn) return arn;
+    }
+    return null;
   }
 
   /**
