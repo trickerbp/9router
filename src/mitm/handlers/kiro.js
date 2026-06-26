@@ -1,6 +1,6 @@
 const { err } = require("../logger");
 const { IS_DEV } = require("../config");
-const { fetchRouter, pipeTransformedEventStream } = require("./base");
+const { fetchRouter, watchClientAbort, pipeTransformedEventStream } = require("./base");
 const fs = require("fs");
 const path = require("path");
 
@@ -488,13 +488,18 @@ async function intercept(req, res, bodyBuffer, mappedModel) {
       ...(tools.length > 0 && { tools, tool_choice: "auto" }),
     };
 
-    // 3: Forward to 9router
-    const routerRes = await fetchRouter(openaiBody, "/v1/chat/completions", req.headers);
+    // 3: Forward to 9router — abort upstream if Kiro cancels the task mid-stream
+    const { controller, cleanup } = watchClientAbort(req, res);
+    try {
+      const routerRes = await fetchRouter(openaiBody, "/v1/chat/completions", req.headers, controller.signal);
 
-    // 4 + 5: Re-encode response as AWS EventStream binary using standard pipeline
-    const state = initKiroState(mappedModel);
+      // 4 + 5: Re-encode response as AWS EventStream binary using standard pipeline
+      const state = initKiroState(mappedModel);
 
-    await pipeTransformedEventStream(routerRes, res, convertOpenAIToKiro, state);
+      await pipeTransformedEventStream(routerRes, res, convertOpenAIToKiro, state);
+    } finally {
+      cleanup();
+    }
   } catch (error) {
     err(`[Kiro MITM] Request processing failed: ${error.message}`);
     if (!res.headersSent) {

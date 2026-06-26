@@ -1,5 +1,5 @@
 const { err } = require("../logger");
-const { fetchRouter, pipeSSE } = require("./base");
+const { fetchRouter, watchClientAbort, pipeSSE } = require("./base");
 
 // Map Copilot endpoint → 9Router path
 const URL_MAP = {
@@ -23,8 +23,13 @@ async function intercept(req, res, bodyBuffer, mappedModel) {
     const body = JSON.parse(bodyBuffer.toString());
     body.model = mappedModel;
     const routerPath = resolveRouterPath(req.url);
-    const routerRes = await fetchRouter(body, routerPath, req.headers);
-    await pipeSSE(routerRes, res);
+    const { controller, cleanup } = watchClientAbort(req, res);
+    try {
+      const routerRes = await fetchRouter(body, routerPath, req.headers, controller.signal);
+      await pipeSSE(routerRes, res);
+    } finally {
+      cleanup();
+    }
   } catch (error) {
     err(`[copilot] ${error.message}`);
     if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });

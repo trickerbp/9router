@@ -16,7 +16,7 @@ const STRIP_HEADERS = new Set([
  * Send body to 9Router at the given path and return the fetch Response object.
  * Optionally forwards client headers (stripped of hop-by-hop / overridden keys).
  */
-async function fetchRouter(openaiBody, path = "/v1/chat/completions", clientHeaders = {}) {
+async function fetchRouter(openaiBody, path = "/v1/chat/completions", clientHeaders = {}, signal) {
   const forwarded = {};
   for (const [k, v] of Object.entries(clientHeaders)) {
     if (!STRIP_HEADERS.has(k.toLowerCase())) forwarded[k] = v;
@@ -29,11 +29,43 @@ async function fetchRouter(openaiBody, path = "/v1/chat/completions", clientHead
       "Content-Type": "application/json",
       ...(API_KEY && { "Authorization": `Bearer ${API_KEY}` })
     },
-    body: JSON.stringify(openaiBody)
+    body: JSON.stringify(openaiBody),
+    // When the IDE cancels a task it drops the connection; this signal lets us
+    // abort the upstream provider request instead of generating tokens nobody reads.
+    ...(signal && { signal })
   });
 
   // Forward response as-is (status + body). pipeSSE will propagate status.
   return response;
+}
+
+/**
+ * Watch the client (IDE) connection for an early disconnect and return an
+ * AbortController that fires when it happens.
+ *
+ * Kiro/Copilot/Antigravity "Stop" buttons abort the HTTP request to this MITM
+ * server. Without this, fetchRouter's upstream request keeps streaming from the
+ * real provider account — burning quota on a response the IDE already discarded.
+ *
+ * The returned controller's signal should be passed to fetchRouter; call the
+ * returned cleanup() once the stream finishes normally to detach listeners.
+ */
+function watchClientAbort(req, res) {
+  const controller = new AbortController();
+  const onClientGone = () => {
+    if (!controller.signal.aborted) controller.abort();
+  };
+  // `aborted` fires when the client resets the stream; `close` covers socket drop.
+  req.on("aborted", onClientGone);
+  res.on("close", () => {
+    // res "close" also fires on normal end — only treat it as cancel if the
+    // response did not finish writing (i.e. client hung up mid-stream).
+    if (!res.writableFinished) onClientGone();
+  });
+  const cleanup = () => {
+    req.off("aborted", onClientGone);
+  };
+  return { controller, cleanup };
 }
 
 /**
@@ -57,11 +89,19 @@ async function pipeSSE(routerRes, res, dumper) {
 
   const reader = routerRes.body.getReader();
   const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) { if (dumper) dumper.end(); res.end(); break; }
-    if (dumper) dumper.writeChunk(value);
-    res.write(decoder.decode(value, { stream: true }));
+  try {
+    while (true) {
+      if (res.writableEnded || res.destroyed) { await reader.cancel().catch(() => {}); break; }
+      const { done, value } = await reader.read();
+      if (done) { if (dumper) dumper.end(); if (!res.writableEnded) res.end(); break; }
+      if (dumper) dumper.writeChunk(value);
+      if (!res.writableEnded) res.write(decoder.decode(value, { stream: true }));
+    }
+  } catch (e) {
+    // AbortError (client cancelled) or socket error — stop quietly; the upstream
+    // fetch has already been signalled to abort by the handler's watchClientAbort.
+    if (dumper) { try { dumper.end(); } catch {} }
+    if (!res.writableEnded) { try { res.end(); } catch {} }
   }
 }
 
@@ -89,57 +129,66 @@ async function pipeTransformedSSE(routerRes, res, transformFn, state) {
   const reader = routerRes.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: false });
   let buffer = "";
+  let aborted = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      if (res.writableEnded || res.destroyed) { aborted = true; await reader.cancel().catch(() => {}); break; }
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data:")) continue;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data:")) continue;
 
-      const data = trimmed.slice(5).trim();
-      if (data === "[DONE]") continue;
+        const data = trimmed.slice(5).trim();
+        if (data === "[DONE]") continue;
 
-      if (process.env.DEBUG_MITM) {
-        log(`[SSE in] ${data.slice(0, 200)}`);
-      }
-
-      try {
-        const parsed = JSON.parse(data);
-        const result = transformFn(parsed, state);
-        if (result != null) {
-          const outputs = Array.isArray(result) ? result : [result];
-          for (const output of outputs) {
-            if (process.env.DEBUG_MITM) {
-              const len = output.length || output.byteLength || 0;
-              log(`[write binary frame] (${len}B) first 20B: ${Array.from(output.slice(0, 20)).join(',')}`);
-            }
-            res.write(Buffer.from(output));
-          }
+        if (process.env.DEBUG_MITM) {
+          log(`[SSE in] ${data.slice(0, 200)}`);
         }
-      } catch {
-        // Skip unparseable lines
+
+        try {
+          const parsed = JSON.parse(data);
+          const result = transformFn(parsed, state);
+          if (result != null) {
+            const outputs = Array.isArray(result) ? result : [result];
+            for (const output of outputs) {
+              if (process.env.DEBUG_MITM) {
+                const len = output.length || output.byteLength || 0;
+                log(`[write binary frame] (${len}B) first 20B: ${Array.from(output.slice(0, 20)).join(',')}`);
+              }
+              if (!res.writableEnded) res.write(Buffer.from(output));
+            }
+          }
+        } catch {
+          // Skip unparseable lines
+        }
       }
     }
+  } catch {
+    // Client cancelled (AbortError) or socket error — stop reading upstream.
+    aborted = true;
   }
 
-  // Flush: pass null to signal stream end
-  try {
-    const flushed = transformFn(null, state);
-    if (flushed != null) {
-      const outputs = Array.isArray(flushed) ? flushed : [flushed];
-      for (const output of outputs) {
-        res.write(output);
+  // Flush: pass null to signal stream end (skip if client already gone)
+  if (!aborted && !res.writableEnded) {
+    try {
+      const flushed = transformFn(null, state);
+      if (flushed != null) {
+        const outputs = Array.isArray(flushed) ? flushed : [flushed];
+        for (const output of outputs) {
+          if (!res.writableEnded) res.write(output);
+        }
       }
-    }
-  } catch { /* ignore flush errors */ }
+    } catch { /* ignore flush errors */ }
+  }
 
-  res.end();
+  if (!res.writableEnded) { try { res.end(); } catch {} }
 }
 
 /**
@@ -170,57 +219,66 @@ async function pipeTransformedEventStream(routerRes, res, transformFn, state) {
   const reader = routerRes.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: false });
   let buffer = "";
+  let aborted = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      if (res.writableEnded || res.destroyed) { aborted = true; await reader.cancel().catch(() => {}); break; }
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data:")) continue;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data:")) continue;
 
-      const data = trimmed.slice(5).trim();
-      if (data === "[DONE]") continue;
+        const data = trimmed.slice(5).trim();
+        if (data === "[DONE]") continue;
 
-      if (process.env.DEBUG_MITM) {
-        log(`[SSE in] ${data.slice(0, 200)}`);
-      }
-
-      try {
-        const parsed = JSON.parse(data);
-        const result = transformFn(parsed, state);
-        if (result != null) {
-          const outputs = Array.isArray(result) ? result : [result];
-          for (const output of outputs) {
-            if (process.env.DEBUG_MITM) {
-              const len = output.length || output.byteLength || 0;
-              log(`[write binary frame] (${len}B) first 20B: ${Array.from(output.slice(0, 20)).join(',')}`);
-            }
-            res.write(Buffer.from(output));
-          }
+        if (process.env.DEBUG_MITM) {
+          log(`[SSE in] ${data.slice(0, 200)}`);
         }
-      } catch {
-        // Skip unparseable lines
+
+        try {
+          const parsed = JSON.parse(data);
+          const result = transformFn(parsed, state);
+          if (result != null) {
+            const outputs = Array.isArray(result) ? result : [result];
+            for (const output of outputs) {
+              if (process.env.DEBUG_MITM) {
+                const len = output.length || output.byteLength || 0;
+                log(`[write binary frame] (${len}B) first 20B: ${Array.from(output.slice(0, 20)).join(',')}`);
+              }
+              if (!res.writableEnded) res.write(Buffer.from(output));
+            }
+          }
+        } catch {
+          // Skip unparseable lines
+        }
       }
     }
+  } catch {
+    // Client cancelled (AbortError) or socket error — stop reading upstream.
+    aborted = true;
   }
 
-  // Flush: pass null to signal stream end
-  try {
-    const flushed = transformFn(null, state);
-    if (flushed != null) {
-      const outputs = Array.isArray(flushed) ? flushed : [flushed];
-      for (const output of outputs) {
-        res.write(output);
+  // Flush: pass null to signal stream end (skip if client already gone)
+  if (!aborted && !res.writableEnded) {
+    try {
+      const flushed = transformFn(null, state);
+      if (flushed != null) {
+        const outputs = Array.isArray(flushed) ? flushed : [flushed];
+        for (const output of outputs) {
+          if (!res.writableEnded) res.write(output);
+        }
       }
-    }
-  } catch { /* ignore flush errors */ }
+    } catch { /* ignore flush errors */ }
+  }
 
-  res.end();
+  if (!res.writableEnded) { try { res.end(); } catch {} }
 }
 
-module.exports = { fetchRouter, pipeSSE, pipeTransformedSSE, pipeTransformedEventStream };
+module.exports = { fetchRouter, watchClientAbort, pipeSSE, pipeTransformedSSE, pipeTransformedEventStream };

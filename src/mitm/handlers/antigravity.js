@@ -1,6 +1,6 @@
 const { err, createResponseDumper } = require("../logger");
 const { IS_DEV } = require("../config");
-const { fetchRouter, pipeSSE } = require("./base");
+const { fetchRouter, watchClientAbort, pipeSSE } = require("./base");
 
 /**
  * Intercept Antigravity request — forward Gemini body as-is to /v1/chat/completions.
@@ -14,8 +14,13 @@ async function intercept(req, res, bodyBuffer, mappedModel) {
     const body = JSON.parse(bodyBuffer.toString());
     if (body.model) body.model = mappedModel;
 
-    const routerRes = await fetchRouter(body, "/v1/chat/completions", req.headers);
-    await pipeSSE(routerRes, res, dumper);
+    const { controller, cleanup } = watchClientAbort(req, res);
+    try {
+      const routerRes = await fetchRouter(body, "/v1/chat/completions", req.headers, controller.signal);
+      await pipeSSE(routerRes, res, dumper);
+    } finally {
+      cleanup();
+    }
   } catch (error) {
     err(`[antigravity] ${error.message}`);
     if (dumper) { dumper.writeChunk(`\n[ERROR] ${error.message}\n`); dumper.end(); }
