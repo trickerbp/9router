@@ -442,14 +442,14 @@ export async function POST(request) {
         }
 
         case "blackbox": {
-          const res = await fetch("https://api.blackbox.ai/chat/completions", {
+          const res = await fetch("https://api.blackbox.ai/v1/chat/completions", {
             method: "POST",
             headers: {
               "Authorization": `Bearer ${apiKey}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: "gpt-4o",
+              model: "blackboxai/openai/gpt-5.4",
               messages: [{ role: "user", content: "test" }],
               max_tokens: 10,
             }),

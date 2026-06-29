@@ -1,9 +1,9 @@
 // Gemini TTS — generateContent with AUDIO modality returns PCM L16, wrap as WAV
 import { Buffer } from "node:buffer";
 
-const DEFAULT_MODEL = "gemini-2.5-flash-preview-tts";
+const DEFAULT_MODEL = "gemini-3.1-flash-tts-preview";
 const DEFAULT_VOICE = "Kore";
-const KNOWN_MODELS = ["gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"];
+const KNOWN_MODELS = ["gemini-3.1-flash-tts-preview", "gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts"];
 
 // Parse "model/voice" — if input doesn't match a known TTS model, treat it as voice with default model
 function parseGeminiModelVoice(input) {

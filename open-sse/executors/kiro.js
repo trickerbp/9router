@@ -5,6 +5,7 @@ import { refreshKiroToken } from "../services/tokenRefresh.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry } from "../config/runtimeConfig.js";
 import { buildKiroQUrl } from "../services/kiroRegion.js";
+import { resolveKiroModel } from "../config/kiroConstants.js";
 
 /**
  * KiroExecutor - Executor for Kiro AI (AWS CodeWhisperer)
@@ -94,6 +95,7 @@ export class KiroExecutor extends BaseExecutor {
     let chunkIndex = 0;
     const responseId = `chatcmpl-${Date.now()}`;
     const created = Math.floor(Date.now() / 1000);
+    const contextWindow = getKiroContextWindow(model);
     const state = {
       endDetected: false,
       finishEmitted: false,
@@ -348,9 +350,8 @@ export class KiroExecutor extends BaseExecutor {
                 : 0;
               
               // Estimate input tokens from contextUsagePercentage
-              // Kiro models typically have 200k context window
               const estimatedInputTokens = state.contextUsagePercentage > 0
-                ? Math.floor(state.contextUsagePercentage * 200000 / 100)
+                ? Math.floor(state.contextUsagePercentage * contextWindow / 100)
                 : 0;
               
               state.usage = {
@@ -509,6 +510,14 @@ function parseEventFrame(data) {
   } catch {
     return null;
   }
+}
+
+function getKiroContextWindow(model) {
+  const upstream = resolveKiroModel(String(model || "")).upstream.replace(/^anthropic\//, "");
+  if (/(^|\/)claude-opus-4[.-](6|7|8)($|[-.])/.test(upstream)) {
+    return 1_000_000;
+  }
+  return 200_000;
 }
 
 export default KiroExecutor;

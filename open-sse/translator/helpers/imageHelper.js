@@ -8,6 +8,8 @@
  * @param {object} options - { signal, timeoutMs }
  * @returns {Promise<{url: string, mimeType: string}|null>}
  */
+import { assertPublicUrl } from "@/shared/utils/ssrfGuard.js";
+
 export async function fetchImageAsBase64(imageUrl, options = {}) {
   const { signal, timeoutMs = 10000 } = options;
   if (!imageUrl || (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://"))) {
@@ -19,6 +21,7 @@ export async function fetchImageAsBase64(imageUrl, options = {}) {
   const fetchSignal = signal || controller.signal;
 
   try {
+    assertPublicUrl(imageUrl);
     const response = await fetch(imageUrl, { signal: fetchSignal });
     if (!response.ok) return null;
 

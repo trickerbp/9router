@@ -25,8 +25,7 @@ export class CodeBuddyExecutor extends DefaultExecutor {
     const eff = transformed.reasoning_effort;
     if (eff === "none" || eff === "off") {
       delete transformed.reasoning_effort; // gateway has no "none" — just omit
-    } else {
-      if (!eff) transformed.reasoning_effort = "medium";
+    } else if (eff) {
       transformed.reasoning_summary = "auto";
     }
     return transformed;

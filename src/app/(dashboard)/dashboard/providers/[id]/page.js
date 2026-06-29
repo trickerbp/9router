@@ -592,11 +592,43 @@ export default function ProviderDetailPage() {
         try {
           const res = await fetch(`/api/providers/${id}`, { method: "DELETE" });
           if (res.ok) {
-            setConnections(connections.filter(c => c.id !== id));
+            setConnections(prev => prev.filter(c => c.id !== id));
+            setSelectedConnectionIds(prev => prev.filter((connectionId) => connectionId !== id));
           }
         } catch (error) {
           console.log("Error deleting connection:", error);
         }
+      }
+    });
+  };
+
+  const handleBulkDelete = () => {
+    const idsToDelete = [...selectedConnectionIds];
+    const count = idsToDelete.length;
+    if (count === 0) return;
+    setConfirmState({
+      title: `Delete ${count} Connection${count > 1 ? "s" : ""}`,
+      message: `Delete ${count} connection${count > 1 ? "s" : ""}? This cannot be undone.`,
+      onConfirm: async () => {
+        setConfirmState(null);
+        const deletedIds = [];
+        let failed = 0;
+        for (const id of idsToDelete) {
+          try {
+            const res = await fetch(`/api/providers/${id}`, { method: "DELETE" });
+            if (res.ok) {
+              deletedIds.push(id);
+            } else {
+              failed += 1;
+            }
+          } catch (error) {
+            console.log("Error deleting connection:", error);
+            failed += 1;
+          }
+        }
+        setConnections(prev => prev.filter(c => !deletedIds.includes(c.id)));
+        setSelectedConnectionIds(prev => prev.filter((id) => !deletedIds.includes(id)));
+        if (failed > 0) alert(`Deleted ${deletedIds.length} connection(s), ${failed} failed.`);
       }
     });
   };
@@ -698,6 +730,7 @@ export default function ProviderDetailPage() {
 
   const selectedConnections = connections.filter((conn) => selectedConnectionIds.includes(conn.id));
   const allSelected = connections.length > 0 && selectedConnectionIds.length === connections.length;
+  const bulkProxyTargets = selectedConnections.length > 0 ? selectedConnections : connections;
 
   const toggleSelectConnection = (connectionId) => {
     setSelectedConnectionIds((prev) => (
@@ -737,8 +770,8 @@ export default function ProviderDetailPage() {
   })();
 
   const openBulkProxyModal = () => {
-    if (selectedConnections.length === 0) return;
-    const uniquePoolIds = [...new Set(selectedConnections.map((conn) => conn.providerSpecificData?.proxyPoolId || "__none__"))];
+    if (bulkProxyTargets.length === 0) return;
+    const uniquePoolIds = [...new Set(bulkProxyTargets.map((conn) => conn.providerSpecificData?.proxyPoolId || "__none__"))];
     setBulkProxyPoolId(uniquePoolIds.length === 1 ? uniquePoolIds[0] : "__none__");
     setShowBulkProxyModal(true);
   };
@@ -774,7 +807,7 @@ export default function ProviderDetailPage() {
   };
 
   const handleApplySinglePool = (proxyPoolId) => {
-    const targets = connections.map((c) => ({ connectionId: c.id, proxyPoolId }));
+    const targets = bulkProxyTargets.map((c) => ({ connectionId: c.id, proxyPoolId }));
     return applyProxyAssignments(targets);
   };
 
@@ -784,7 +817,7 @@ export default function ProviderDetailPage() {
       alert("No active proxy pools available.");
       return;
     }
-    const targets = connections.map((c, i) => ({
+    const targets = bulkProxyTargets.map((c, i) => ({
       connectionId: c.id,
       proxyPoolId: activePools[i % activePools.length].id,
     }));
@@ -799,6 +832,14 @@ export default function ProviderDetailPage() {
       {connections
         .map((conn, index) => (
           <div key={conn.id} className="flex min-w-0 items-stretch">
+            <div className="flex shrink-0 items-center pl-1 pr-2 sm:pl-2">
+              <input
+                type="checkbox"
+                checked={isSelected(conn.id)}
+                onChange={() => toggleSelectConnection(conn.id)}
+                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+            </div>
             <div className="flex-1 min-w-0">
               <ConnectionRow
                 connection={conn}
@@ -850,9 +891,12 @@ export default function ProviderDetailPage() {
     <Modal
       isOpen={showBulkProxyModal}
       onClose={closeBulkProxyModal}
-      title={`Apply Proxy (${connections.length} connections)`}
+      title={`Apply Proxy (${bulkProxyTargets.length} connections)`}
     >
       <div className="flex flex-col gap-3">
+        {!!selectedProxySummary && (
+          <p className="text-xs text-text-muted">{selectedProxySummary}</p>
+        )}
         <div className="flex flex-col">
           <button
             onClick={handleApplyOneToOne}
@@ -1263,9 +1307,19 @@ export default function ProviderDetailPage() {
                   size="sm"
                   variant="secondary"
                   icon="lan"
-                  onClick={() => setShowBulkProxyModal(true)}
+                  onClick={openBulkProxyModal}
                 >
                   Apply Proxy
+                </Button>
+              )}
+              {selectedConnectionIds.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="danger"
+                  icon="delete"
+                  onClick={handleBulkDelete}
+                >
+                  Delete Selected ({selectedConnectionIds.length})
                 </Button>
               )}
               {connections.length > 0 && (
@@ -1390,6 +1444,19 @@ export default function ProviderDetailPage() {
                       <span>Running: {connections.find((conn) => conn.id === oneByOneCurrentConnectionId)?.name || oneByOneCurrentConnectionId}</span>
                     )}
                   </div>
+                </div>
+              )}
+              {connections.length > 0 && (
+                <div className="mb-3 flex items-center gap-2 border-b border-black/[0.03] pb-2 dark:border-white/[0.03]">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-text-muted hover:text-primary">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={toggleSelectAllConnections}
+                      className="h-3.5 w-3.5 rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                    Select All
+                  </label>
                 </div>
               )}
               {connectionsList}

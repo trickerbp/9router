@@ -10,6 +10,7 @@ const STRIP_RULES = [
 
 // Test a rule's match (regex or predicate) against the model id.
 function matches(rule, model) {
+  if (!rule.match) return true;
   return typeof rule.match === "function" ? rule.match(model) : rule.match.test(model);
 }
 

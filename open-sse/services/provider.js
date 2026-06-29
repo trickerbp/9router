@@ -349,7 +349,6 @@ export function hasThinkingConfig(body) {
 // - If lastMessage is user AND has thinking config → keep it (force enable)
 export function normalizeThinkingConfig(body) {
   if (!isLastMessageFromUser(body)) {
-    delete body.reasoning_effort;
     delete body.thinking;
   }
   return body;

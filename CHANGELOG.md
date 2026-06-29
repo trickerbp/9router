@@ -1,3 +1,9 @@
+# v0.5.12 (2026-06-29)
+
+## Ported upstream
+- Port selected upstream fixes/features from decolua/9router v0.5.8..v0.5.12 into the customized fork.
+- Includes stream/usage dedupe, reasoning preservation, Gemini native TTS support, Copilot live catalog, auth/cache fixes, and security hardening.
+
 # v0.5.8 (2026-06-22)
 
 ## Features

@@ -19,19 +19,27 @@ export async function OPTIONS() {
  */
 export async function GET() {
   try {
-    // Collect all models from all providers
     const models = [];
+    const seen = new Set();
+    const addModel = (name, provider, model) => {
+      if (seen.has(name)) return;
+      seen.add(name);
+      models.push({
+        name,
+        displayName: model.name || model.id,
+        description: `${provider} model: ${model.name || model.id}`,
+        supportedGenerationMethods: ["generateContent", "streamGenerateContent"],
+        inputTokenLimit: 128000,
+        outputTokenLimit: 8192,
+      });
+    };
     
     for (const [provider, providerModels] of Object.entries(PROVIDER_MODELS)) {
       for (const model of providerModels) {
-        models.push({
-          name: `models/${provider}/${model.id}`,
-          displayName: model.name || model.id,
-          description: `${provider} model: ${model.name || model.id}`,
-          supportedGenerationMethods: ["generateContent"],
-          inputTokenLimit: 128000,
-          outputTokenLimit: 8192,
-        });
+        addModel(`models/${provider}/${model.id}`, provider, model);
+        if (provider === "gemini" || provider === "gemini-tts-models") {
+          addModel(`models/${model.id}`, provider, model);
+        }
       }
     }
 

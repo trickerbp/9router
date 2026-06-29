@@ -7,6 +7,7 @@ import { isOidcConfigured } from "@/lib/auth/oidc";
 import { checkLock, recordFail, recordSuccess, getClientIp } from "@/lib/auth/loginLimiter";
 
 const RESET_HINT = "Forgot password? Reset to default via 9Router CLI → Settings → Reset Password to Default.";
+const NO_STORE_HEADERS = { "Cache-Control": "no-store" };
 
 function isTunnelRequest(request, settings) {
   const host = (request.headers.get("host") || "").split(":")[0].toLowerCase();
@@ -22,7 +23,7 @@ export async function POST(request) {
     if (lock.locked) {
       return NextResponse.json(
         { error: `Too many failed attempts. Try again in ${lock.retryAfter}s. ${RESET_HINT}`, retryAfter: lock.retryAfter, resetHint: RESET_HINT },
-        { status: 429, headers: { "Retry-After": String(lock.retryAfter) } }
+        { status: 429, headers: { ...NO_STORE_HEADERS, "Retry-After": String(lock.retryAfter) } }
       );
     }
 
@@ -31,14 +32,14 @@ export async function POST(request) {
 
     // Block login via tunnel/tailscale if dashboard access is disabled
     if (isTunnelRequest(request, settings) && settings.tunnelDashboardAccess !== true) {
-      return NextResponse.json({ error: "Dashboard access via tunnel is disabled" }, { status: 403 });
+      return NextResponse.json({ error: "Dashboard access via tunnel is disabled" }, { status: 403, headers: NO_STORE_HEADERS });
     }
 
     // Default password is '123456' if not set
     const storedHash = settings.password;
 
     if (settings.authMode === "oidc" && isOidcConfigured(settings)) {
-      return NextResponse.json({ error: "Password login is disabled. Use OIDC sign in." }, { status: 403 });
+      return NextResponse.json({ error: "Password login is disabled. Use OIDC sign in." }, { status: 403, headers: NO_STORE_HEADERS });
     }
 
     let isValid = false;
@@ -55,7 +56,7 @@ export async function POST(request) {
       const cookieStore = await cookies();
       await setDashboardAuthCookie(cookieStore, request);
 
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true }, { headers: NO_STORE_HEADERS });
     }
 
     const { remainingBeforeLock } = recordFail(ip);
@@ -63,14 +64,14 @@ export async function POST(request) {
     if (postLock.locked) {
       return NextResponse.json(
         { error: `Too many failed attempts. Try again in ${postLock.retryAfter}s. ${RESET_HINT}`, retryAfter: postLock.retryAfter, resetHint: RESET_HINT },
-        { status: 429, headers: { "Retry-After": String(postLock.retryAfter) } }
+        { status: 429, headers: { ...NO_STORE_HEADERS, "Retry-After": String(postLock.retryAfter) } }
       );
     }
     return NextResponse.json(
       { error: `Invalid password. ${remainingBeforeLock} attempt(s) left before lockout.`, remainingBeforeLock },
-      { status: 401 }
+      { status: 401, headers: NO_STORE_HEADERS }
     );
   } catch (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: 500, headers: NO_STORE_HEADERS });
   }
 }

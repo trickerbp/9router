@@ -135,7 +135,7 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
     headers,
     body: JSON.stringify({
       model,
-      max_tokens: 1,
+      max_tokens: 16,
       stream: false,
       messages: [{ role: "user", content: "hi" }],
     }),

@@ -106,7 +106,9 @@ function isPublicLlmApi(pathname) {
 function extractApiKey(request) {
   const authHeader = request.headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ")) return authHeader.slice(7);
-  return request.headers.get("x-api-key");
+  const explicitKey = request.headers.get("x-api-key") || request.headers.get("x-goog-api-key");
+  if (explicitKey) return explicitKey;
+  return request.nextUrl?.searchParams?.get("key") || null;
 }
 
 async function hasValidApiKey(request) {

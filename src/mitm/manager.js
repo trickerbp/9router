@@ -41,6 +41,7 @@ async function resolveMitmRouterBaseUrl() {
 const MITM_PORT = 443;
 const MITM_WIN_NODE_PORT = 8443;
 const PID_FILE = path.join(MITM_DIR, ".mitm.pid");
+const LOCK_FILE = path.join(MITM_DIR, ".mitm.lock");
 
 const MITM_MAX_RESTARTS = 5;
 const MITM_RESTART_DELAYS_MS = [5000, 10000, 20000, 30000, 60000];
@@ -49,6 +50,20 @@ const MITM_RESTART_RESET_MS = 60000;
 let mitmRestartCount = 0;
 let mitmLastStartTime = 0;
 let mitmIsRestarting = false;
+
+function releaseMitmLock() {
+  try { fs.unlinkSync(LOCK_FILE); } catch { /* ignore */ }
+}
+
+function acquireMitmLock() {
+  try {
+    fs.mkdirSync(MITM_DIR, { recursive: true });
+    fs.writeFileSync(LOCK_FILE, String(process.pid), { flag: "wx" });
+    process.once("exit", releaseMitmLock);
+  } catch {
+    throw new Error("MITM server start is already in progress");
+  }
+}
 
 function resolveBundledServerPath() {
   if (process.env.MITM_SERVER_PATH) return process.env.MITM_SERVER_PATH;
@@ -486,6 +501,8 @@ async function startServer(apiKey, sudoPassword, forceKillPort443 = false) {
     throw new Error("MITM server is already running");
   }
 
+  acquireMitmLock();
+  try {
   await killLeftoverMitm(sudoPassword);
 
   if (!IS_WIN) {
@@ -679,6 +696,7 @@ async function startServer(apiKey, sudoPassword, forceKillPort443 = false) {
       serverProcess = null;
       serverPid = null;
       try { fs.unlinkSync(PID_FILE); } catch { /* ignore */ }
+      releaseMitmLock();
       // Auto-restart on unexpected exit
       if (code !== 0 && !mitmIsRestarting) scheduleMitmRestart(apiKey);
     });
@@ -706,7 +724,12 @@ async function startServer(apiKey, sudoPassword, forceKillPort443 = false) {
   await saveMitmSettings(true, sudoPassword);
   if (sudoPassword) setCachedPassword(sudoPassword);
 
+  releaseMitmLock();
   return { running: true, pid: serverPid };
+  } catch (e) {
+    releaseMitmLock();
+    throw e;
+  }
 }
 
 /**
@@ -779,6 +802,7 @@ async function stopServer(sudoPassword) {
   }
 
   try { fs.unlinkSync(PID_FILE); } catch { /* ignore */ }
+  releaseMitmLock();
   await saveMitmSettings(false, null);
   mitmIsRestarting = false;
 

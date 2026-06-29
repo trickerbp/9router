@@ -8,6 +8,12 @@ const RING_CAP = 50;
 const CONN_CACHE_TTL_MS = 30 * 1000;
 const PERIOD_MS = { "24h": 86400000, "7d": 604800000, "30d": 2592000000, "60d": 5184000000 };
 
+function maskApiKey(key) {
+  if (!key || typeof key !== "string") return null;
+  if (key.length <= 8) return `${key.charAt(0)}***`;
+  return `${key.slice(0, 8)}***`;
+}
+
 // In-memory state shared across Next.js modules
 if (!global._pendingRequests) global._pendingRequests = { byModel: {}, byAccount: {} };
 if (!global._lastErrorProvider) global._lastErrorProvider = { provider: "", ts: 0 };
@@ -301,7 +307,7 @@ export async function getUsageHistory(filter = {}) {
 
   return rows.map((r) => ({
     timestamp: r.timestamp, provider: r.provider, model: r.model,
-    connectionId: r.connectionId, apiKey: r.apiKey, endpoint: r.endpoint,
+    connectionId: r.connectionId, apiKeyMasked: maskApiKey(r.apiKey), endpoint: r.endpoint,
     cost: r.cost, status: r.status, tokens: parseJson(r.tokens, {}),
   }));
 }
@@ -475,15 +481,17 @@ export async function getUsageStats(period = "all") {
         const apiKeyVal = ak.apiKey;
         const keyInfo = apiKeyVal ? apiKeyMap[apiKeyVal] : null;
         const keyName = keyInfo?.name || (apiKeyVal ? apiKeyVal.slice(0, 8) + "..." : "Local (No API Key)");
-        const apiKeyKey = apiKeyVal || "local-no-key";
-        if (!stats.byApiKey[akKey]) {
-          stats.byApiKey[akKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, rawModel, provider: providerDisplayName, apiKey: apiKeyVal, keyName, apiKeyKey, lastUsed: dateKey };
+        const apiKeyMasked = maskApiKey(apiKeyVal);
+        const apiKeyKey = apiKeyMasked || "local-no-key";
+        const displayAkKey = apiKeyMasked ? `${apiKeyMasked}|${rawModel}|${provider || "unknown"}` : "local-no-key";
+        if (!stats.byApiKey[displayAkKey]) {
+          stats.byApiKey[displayAkKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, rawModel, provider: providerDisplayName, apiKeyMasked, keyName, apiKeyKey, lastUsed: dateKey };
         }
-        stats.byApiKey[akKey].requests += ak.requests || 0;
-        stats.byApiKey[akKey].promptTokens += ak.promptTokens || 0;
-        stats.byApiKey[akKey].completionTokens += ak.completionTokens || 0;
-        stats.byApiKey[akKey].cost += ak.cost || 0;
-        if (dateKey > (stats.byApiKey[akKey].lastUsed || "")) stats.byApiKey[akKey].lastUsed = dateKey;
+        stats.byApiKey[displayAkKey].requests += ak.requests || 0;
+        stats.byApiKey[displayAkKey].promptTokens += ak.promptTokens || 0;
+        stats.byApiKey[displayAkKey].completionTokens += ak.completionTokens || 0;
+        stats.byApiKey[displayAkKey].cost += ak.cost || 0;
+        if (dateKey > (stats.byApiKey[displayAkKey].lastUsed || "")) stats.byApiKey[displayAkKey].lastUsed = dateKey;
       }
 
       for (const [epKey, ep] of Object.entries(day.byEndpoint || {})) {
@@ -520,7 +528,7 @@ export async function getUsageStats(period = "all") {
       }
 
       const apiKeyKey = (e.apiKey && typeof e.apiKey === "string")
-        ? `${e.apiKey}|${e.model}|${e.provider || "unknown"}`
+        ? `${maskApiKey(e.apiKey)}|${e.model}|${e.provider || "unknown"}`
         : "local-no-key";
       if (stats.byApiKey[apiKeyKey] && new Date(ts) > new Date(stats.byApiKey[apiKeyKey].lastUsed)) stats.byApiKey[apiKeyKey].lastUsed = ts;
 
@@ -586,16 +594,17 @@ export async function getUsageStats(period = "all") {
       if (r.apiKey && typeof r.apiKey === "string") {
         const keyInfo = apiKeyMap[r.apiKey];
         const keyName = keyInfo?.name || r.apiKey.slice(0, 8) + "...";
-        const akKey = `${r.apiKey}|${r.model}|${r.provider || "unknown"}`;
+        const apiKeyMasked = maskApiKey(r.apiKey);
+        const akKey = `${apiKeyMasked}|${r.model}|${r.provider || "unknown"}`;
         if (!stats.byApiKey[akKey]) {
-          stats.byApiKey[akKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKey: r.apiKey, keyName, apiKeyKey: r.apiKey, lastUsed: r.timestamp };
+          stats.byApiKey[akKey] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKeyMasked, keyName, apiKeyKey: apiKeyMasked, lastUsed: r.timestamp };
         }
         const ake = stats.byApiKey[akKey];
         ake.requests++; ake.promptTokens += promptTokens; ake.completionTokens += completionTokens; ake.cost += entryCost;
         if (new Date(r.timestamp) > new Date(ake.lastUsed)) ake.lastUsed = r.timestamp;
       } else {
         if (!stats.byApiKey["local-no-key"]) {
-          stats.byApiKey["local-no-key"] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKey: null, keyName: "Local (No API Key)", apiKeyKey: "local-no-key", lastUsed: r.timestamp };
+          stats.byApiKey["local-no-key"] = { requests: 0, promptTokens: 0, completionTokens: 0, cost: 0, rawModel: r.model, provider: providerDisplayName, apiKeyMasked: null, keyName: "Local (No API Key)", apiKeyKey: "local-no-key", lastUsed: r.timestamp };
         }
         const ake = stats.byApiKey["local-no-key"];
         ake.requests++; ake.promptTokens += promptTokens; ake.completionTokens += completionTokens; ake.cost += entryCost;
