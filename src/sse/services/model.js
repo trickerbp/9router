@@ -1,6 +1,7 @@
 // Re-export from open-sse with localDb integration
 import { getModelAliases, getComboByName, getProviderNodes } from "@/lib/localDb";
 import { parseModel as parseModelCore, resolveModelAliasFromMap, getModelInfoCore } from "open-sse/services/model.js";
+import { PROVIDER_MODELS } from "open-sse/config/providerModels.js";
 
 // Local provider alias overrides (HMR-friendly, applied on top of open-sse map)
 const LOCAL_PROVIDER_ALIASES = {
@@ -14,6 +15,34 @@ export function parseModel(modelStr) {
     return { ...parsed, provider: LOCAL_PROVIDER_ALIASES[parsed.providerAlias] };
   }
   return parsed;
+}
+
+function normalizeBareCodexModel(model) {
+  const raw = String(model || "").trim();
+  if (!raw) return raw;
+  if (/^5\.\d+(?:-.+)?$/i.test(raw)) return `gpt-${raw}`;
+  if (/^gpt5(?:\.\d+)?$/i.test(raw)) {
+    return raw.toLowerCase().replace(/^gpt/, "gpt-");
+  }
+  return raw;
+}
+
+function hasProviderModel(providerAlias, model) {
+  const target = String(model || "").toLowerCase();
+  return (PROVIDER_MODELS[providerAlias] || []).some((entry) => {
+    if ((entry.type || "llm") !== "llm") return false;
+    return String(entry.id || "").toLowerCase() === target;
+  });
+}
+
+function isCodexOnlyModel(model) {
+  const normalized = normalizeBareCodexModel(model);
+  return hasProviderModel("cx", normalized) && !hasProviderModel("openai", normalized);
+}
+
+function rerouteCodexOnlyOpenAI(info) {
+  if (!info || info.provider !== "openai" || !isCodexOnlyModel(info.model)) return info;
+  return { ...info, provider: "codex", model: normalizeBareCodexModel(info.model) };
 }
 
 /**
@@ -49,10 +78,10 @@ export async function getModelInfo(modelStr) {
     if (matchedEmbedding) {
       return { provider: matchedEmbedding.id, model: parsed.model };
     }
-    return {
+    return rerouteCodexOnlyOpenAI({
       provider: parsed.provider,
-      model: parsed.model
-    };
+      model: normalizeBareCodexModel(parsed.model)
+    });
   }
 
   // Check if this is a combo name before resolving as alias
@@ -64,7 +93,13 @@ export async function getModelInfo(modelStr) {
     return { provider: null, model: parsed.model };
   }
 
-  return getModelInfoCore(modelStr, getModelAliases);
+  const normalizedCodexModel = normalizeBareCodexModel(parsed.model);
+  if (isCodexOnlyModel(normalizedCodexModel)) {
+    return { provider: "codex", model: normalizedCodexModel };
+  }
+
+  const resolved = await getModelInfoCore(modelStr, getModelAliases);
+  return rerouteCodexOnlyOpenAI(resolved);
 }
 
 /**

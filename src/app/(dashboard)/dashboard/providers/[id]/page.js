@@ -17,6 +17,7 @@ import ConnectionRow from "./ConnectionRow";
 import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
+import BulkImportCodexModal from "./BulkImportCodexModal";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -36,6 +37,7 @@ export default function ProviderDetailPage() {
   const [showIFlowCookieModal, setShowIFlowCookieModal] = useState(false);
   const [showAddApiKeyModal, setShowAddApiKeyModal] = useState(false);
   const [addConnectionError, setAddConnectionError] = useState("");
+  const [showBulkImportCodex, setShowBulkImportCodex] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showEditNodeModal, setShowEditNodeModal] = useState(false);
   const [showBulkProxyModal, setShowBulkProxyModal] = useState(false);
@@ -1424,6 +1426,17 @@ export default function ProviderDetailPage() {
                     >
                       {isCompatible ? "Add API Key" : (providerId === "iflow" ? "OAuth" : "Add Connection")}
                     </Button>
+                    {providerId === "codex" && (
+                      <Button
+                        size="sm"
+                        icon="playlist_add"
+                        variant="secondary"
+                        onClick={() => setShowBulkImportCodex(true)}
+                        title={translate("Bulk import codex accounts from JSON")}
+                      >
+                        {translate("Bulk Add")}
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
@@ -1495,14 +1508,28 @@ export default function ProviderDetailPage() {
                       </Button>
                     </>
                   ) : (
-                    <Button
-                      size="sm"
-                      icon="add"
-                      onClick={triggerAddConnection}
-                      className="w-full sm:w-auto"
-                    >
-                      Add
-                    </Button>
+                    <>
+                      <Button
+                        size="sm"
+                        icon="add"
+                        onClick={triggerAddConnection}
+                        className="w-full sm:w-auto"
+                      >
+                        Add
+                      </Button>
+                      {providerId === "codex" && (
+                        <Button
+                          size="sm"
+                          icon="playlist_add"
+                          variant="secondary"
+                          onClick={() => setShowBulkImportCodex(true)}
+                          title={translate("Bulk import codex accounts from JSON")}
+                          className="w-full sm:w-auto"
+                        >
+                          {translate("Bulk Add")}
+                        </Button>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1582,6 +1609,13 @@ export default function ProviderDetailPage() {
           isOpen={showIFlowCookieModal}
           onSuccess={handleIFlowCookieSuccess}
           onClose={() => setShowIFlowCookieModal(false)}
+        />
+      )}
+      {providerId === "codex" && (
+        <BulkImportCodexModal
+          isOpen={showBulkImportCodex}
+          onClose={() => setShowBulkImportCodex(false)}
+          onSuccess={fetchConnections}
         />
       )}
       <AddApiKeyModal

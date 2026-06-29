@@ -6,7 +6,8 @@ import QuotaTable from "./QuotaTable";
 import Toggle from "@/shared/components/Toggle";
 import { parseQuotaData, calculatePercentage } from "./utils";
 import Card from "@/shared/components/Card";
-import { EditConnectionModal } from "@/shared/components";
+import Tooltip from "@/shared/components/Tooltip";
+import { ConfirmModal, EditConnectionModal } from "@/shared/components";
 import { USAGE_SUPPORTED_PROVIDERS } from "@/shared/constants/providers";
 
 function getConnectionLabel(connection) {
@@ -163,6 +164,12 @@ function shouldResetPage(previousValue, nextValue) {
   return previousValue !== nextValue;
 }
 
+function getCodexResetCreditCount(quota) {
+  const value = quota?.raw?.resetCredits?.availableCount;
+  const count = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(count) ? Math.max(0, count) : 0;
+}
+
 function getPaginationPageValue(dataPagination, fallbackPage) {
   return dataPagination?.page || fallbackPage;
 }
@@ -233,6 +240,8 @@ export default function ProviderLimits() {
   const [connectionsLoading, setConnectionsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
+  const [resettingLimitId, setResettingLimitId] = useState(null);
+  const [resetConfirmState, setResetConfirmState] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState(null);
   const [proxyPools, setProxyPools] = useState([]);
@@ -388,6 +397,32 @@ export default function ProviderLimits() {
       setLastUpdated(new Date());
     },
     [fetchQuota],
+  );
+
+  const handleResetCodexLimit = useCallback(
+    async (connectionId, provider) => {
+      if (provider !== "codex" || resettingLimitId) return;
+
+      setResettingLimitId(connectionId);
+      setErrors((prev) => ({ ...prev, [connectionId]: null }));
+
+      try {
+        const response = await fetch(`/api/usage/${connectionId}/codex-reset-credits`, { method: "POST" });
+        const result = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(result.message || result.error || result.code || "Failed to reset Codex limit");
+        }
+
+        await fetchQuota(connectionId, provider);
+        setLastUpdated(new Date());
+      } catch (error) {
+        setErrors((prev) => ({ ...prev, [connectionId]: error.message || "Failed to reset Codex limit" }));
+      } finally {
+        setResettingLimitId(null);
+      }
+    },
+    [fetchQuota, resettingLimitId],
   );
 
   const handleDeleteConnection = useCallback(
@@ -974,7 +1009,10 @@ export default function ProviderLimits() {
 
           // Use table layout for all providers
           const isInactive = conn.isActive === false;
-          const rowBusy = deletingId === conn.id || togglingId === conn.id;
+          const isCodex = conn.provider === "codex";
+          const resetCreditCount = getCodexResetCreditCount(quota);
+          const isResettingLimit = resettingLimitId === conn.id;
+          const rowBusy = deletingId === conn.id || togglingId === conn.id || isResettingLimit;
 
           return (
             <Card
@@ -1005,10 +1043,44 @@ export default function ProviderLimits() {
                           {getConnectionLabel(conn)}
                         </p>
                       ) : null}
+                      {isCodex && (
+                        <p className="text-[11px] text-text-muted truncate">
+                          Reset eligible: {resetCreditCount}
+                        </p>
+                      )}
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 shrink-0">
+                    {isCodex && (
+                      <Tooltip text={`Codex reset credits remaining: ${resetCreditCount}`}>
+                        <div
+                          className={`hidden h-8 items-center gap-1 rounded-lg border px-2 text-[11px] sm:flex ${
+                            resetCreditCount > 0
+                              ? "border-primary/30 bg-primary/5 text-primary"
+                              : "border-black/10 bg-black/[0.02] text-text-muted dark:border-white/10 dark:bg-white/[0.03]"
+                          }`}
+                        >
+                          <span className="material-symbols-outlined text-[14px]">restart_alt</span>
+                          <span className="tabular-nums">{resetCreditCount}</span>
+                        </div>
+                      </Tooltip>
+                    )}
+                    {isCodex && resetCreditCount > 0 && (
+                      <Tooltip text={`Use one Codex reset credit. Available: ${resetCreditCount}`}>
+                        <button
+                          type="button"
+                          onClick={() => setResetConfirmState({ connection: conn, resetCreditCount })}
+                          disabled={isLoading || rowBusy}
+                          className="flex h-8 items-center gap-1 rounded-lg border border-primary/30 px-2 text-[11px] text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                        >
+                          <span className={`material-symbols-outlined text-[15px] ${isResettingLimit ? "animate-spin" : ""}`}>
+                            {isResettingLimit ? "progress_activity" : "bolt"}
+                          </span>
+                          <span className="hidden lg:inline">Reset limit</span>
+                        </button>
+                      </Tooltip>
+                    )}
                     <button
                       type="button"
                       onClick={() => refreshProvider(conn.id, conn.provider)}
@@ -1229,6 +1301,25 @@ export default function ProviderLimits() {
             </div>
           </div>
         </div>
+
+      <ConfirmModal
+        isOpen={Boolean(resetConfirmState)}
+        onClose={() => {
+          if (!resettingLimitId) setResetConfirmState(null);
+        }}
+        onConfirm={async () => {
+          const connection = resetConfirmState?.connection;
+          if (!connection) return;
+          await handleResetCodexLimit(connection.id, connection.provider);
+          setResetConfirmState(null);
+        }}
+        title="Reset Codex limit?"
+        message={`Use 1 Codex reset credit for ${getConnectionLabel(resetConfirmState?.connection || {}) || "this account"}. This cannot be undone. Remaining credits: ${resetConfirmState?.resetCreditCount ?? 0}.`}
+        confirmText="Reset limit"
+        cancelText="Cancel"
+        variant="danger"
+        loading={Boolean(resettingLimitId)}
+      />
 
       <EditConnectionModal
         isOpen={showEditModal}

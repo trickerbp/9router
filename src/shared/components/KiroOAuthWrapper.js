@@ -11,7 +11,7 @@ import KiroSocialOAuthModal from "./KiroSocialOAuthModal";
  * Orchestrates between method selection, device code flow, and social login flow
  */
 export default function KiroOAuthWrapper({ isOpen, providerInfo, onSuccess, onClose }) {
-  const [authMethod, setAuthMethod] = useState(null); // null | "builder-id" | "idc" | "social" | "import"
+  const [authMethod, setAuthMethod] = useState(null); // null | "builder-id" | "idc" | "social" | "import" | "api-key"
   const [socialProvider, setSocialProvider] = useState(null); // "google" | "github"
   const [idcConfig, setIdcConfig] = useState(null);
 
@@ -27,7 +27,7 @@ export default function KiroOAuthWrapper({ isOpen, providerInfo, onSuccess, onCl
       // Use social login with manual callback
       setAuthMethod("social");
       setSocialProvider(config.provider);
-    } else if (method === "import") {
+    } else if (method === "import" || method === "api-key") {
       // Import handled in KiroAuthModal, just close
       onSuccess?.();
     }

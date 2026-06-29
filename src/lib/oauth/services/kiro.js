@@ -312,6 +312,42 @@ export class KiroService {
     return null;
   }
 
+  async validateApiKey(apiKey, region = "us-east-1") {
+    if (!apiKey || typeof apiKey !== "string" || !apiKey.trim()) {
+      throw new Error("API key is required");
+    }
+    const trimmed = apiKey.trim();
+    const endpoint = `https://codewhisperer.${region}.amazonaws.com`;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-amz-json-1.0",
+        "x-amz-target": "AmazonCodeWhispererService.ListAvailableProfiles",
+        "Authorization": `Bearer ${trimmed}`,
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({ maxResults: 10 }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API key validation failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const profiles = Array.isArray(data?.profiles) ? data.profiles : [];
+    const getArn = (profile) => profile?.arn || profile?.profileArn || null;
+    const matchingProfile = profiles.find((profile) => getArn(profile)?.split(":")[3] === region) || profiles[0];
+
+    return {
+      accessToken: trimmed,
+      refreshToken: null,
+      profileArn: getArn(matchingProfile),
+      region,
+      authMethod: "api_key",
+    };
+  }
+
   /**
    * Validate and import refresh token
    */
