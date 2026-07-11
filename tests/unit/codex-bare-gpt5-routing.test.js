@@ -4,6 +4,10 @@ import { getModelInfoCore, parseModel } from "../../open-sse/services/model.js";
 
 describe("bare gpt-5.* model routing", () => {
   it.each([
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-preview",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",
@@ -33,6 +37,10 @@ describe("bare gpt-5.* model routing", () => {
     await expect(getModelInfoCore("gpt-4.1", {})).resolves.toMatchObject({
       provider: "openai",
       model: "gpt-4.1",
+    });
+    await expect(getModelInfoCore("gpt-50", {})).resolves.toMatchObject({
+      provider: "openai",
+      model: "gpt-50",
     });
   });
 });
