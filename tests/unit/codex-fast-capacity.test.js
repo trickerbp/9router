@@ -109,4 +109,53 @@ describe("Codex fast tier and capacity handling", () => {
     expect(peek.matched).toBeNull();
     await expect(new Response(peek.replacementBody).text()).resolves.toBe(text);
   });
+
+  it("stops peeking as soon as a GPT-5.6 custom tool call starts streaming", async () => {
+    const executor = new CodexExecutor();
+    const encoder = new TextEncoder();
+    let closeStream;
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode([
+          "event: response.custom_tool_call_input.delta",
+          'data: {"type":"response.custom_tool_call_input.delta","delta":"patch"}',
+          "",
+        ].join("\n")));
+        closeStream = () => controller.close();
+      },
+    }), {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+
+    const result = await Promise.race([
+      executor._peekSseTransientError(response),
+      new Promise((resolve) => setTimeout(() => resolve("timeout"), 100)),
+    ]);
+    closeStream();
+
+    expect(result).not.toBe("timeout");
+    expect(result.matched).toBeNull();
+    await expect(new Response(result.replacementBody).text()).resolves.toContain(
+      "response.custom_tool_call_input.delta",
+    );
+  });
+
+  it("does not retry when custom tool input contains an error-looking string", async () => {
+    const executor = new CodexExecutor();
+    const text = [
+      "event: response.custom_tool_call_input.delta",
+      'data: {"type":"response.custom_tool_call_input.delta","delta":"service_unavailable_error"}',
+      "",
+    ].join("\n");
+    const response = new Response(streamFromText(text), {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+
+    const peek = await executor._peekSseTransientError(response);
+
+    expect(peek.matched).toBeNull();
+    await expect(new Response(peek.replacementBody).text()).resolves.toBe(text);
+  });
 });
