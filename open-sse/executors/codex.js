@@ -23,6 +23,7 @@ const CODEX_SSE_USER_OUTPUT_PATTERNS = [
 ];
 const CODEX_SSE_PEEK_BYTES = 256 * 1024;
 const CODEX_MODEL_CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model.";
+const CODEX_REQUIRES_INPUT_TOOLS_PATTERN = /^gpt-5\.6-(sol|terra|luna)(?:$|-)/i;
 
 // Server-generated item id prefixes that Codex /responses cannot resolve when store=false
 const SERVER_ID_PATTERN = /^(rs|fc|resp|msg)_/;
@@ -54,6 +55,29 @@ function convertSystemToDeveloperRole(body) {
   }
 }
 
+function extractCodexText(content) {
+  if (typeof content === "string") return content.trim() === "" ? "..." : content;
+  if (!Array.isArray(content)) return "";
+  const text = content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      if (typeof part.text === "string") return part.text;
+      if (typeof part.content === "string") return part.content;
+      if (typeof part.output === "string") return part.output;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+  return text || "";
+}
+
+function keepOnly(item, keys) {
+  const allowed = new Set(keys);
+  for (const key of Object.keys(item)) {
+    if (!allowed.has(key)) delete item[key];
+  }
+}
+
 // Strip server-generated item IDs (rs_/fc_/resp_/msg_) from input — avoids 404 with store=false
 function stripStoredItemReferences(body) {
   if (!Array.isArray(body.input)) return;
@@ -68,10 +92,9 @@ function stripStoredItemReferences(body) {
 }
 
 // Flatten Chat-Completions tool shape into Responses flat format + filter unsupported tools
-function normalizeCodexTools(body) {
-  if (!Array.isArray(body.tools)) return;
+function normalizeCodexToolList(tools) {
   const validNames = new Set();
-  body.tools = body.tools.filter((tool) => {
+  const normalizedTools = tools.filter((tool) => {
     if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false;
     const type = typeof tool.type === "string" ? tool.type : "";
     if (type === "namespace") {
@@ -85,6 +108,10 @@ function normalizeCodexTools(body) {
     }
     if (type !== "function") {
       if (CODEX_PASSTHROUGH_TOOL_TYPES.has(type)) return true;
+      if (type === "tool_search") {
+        if (tool.execution !== "server" && tool.execution !== "client") tool.execution = "client";
+        return true;
+      }
       if (!type || tool.function || typeof tool.name === "string") return false;
       return CODEX_HOSTED_TOOL_TYPES.has(type);
     }
@@ -104,6 +131,13 @@ function normalizeCodexTools(body) {
     validNames.add(name);
     return true;
   });
+  return { tools: normalizedTools, validNames };
+}
+
+function normalizeCodexTools(body) {
+  if (!Array.isArray(body.tools)) return;
+  const { tools, validNames } = normalizeCodexToolList(body.tools);
+  body.tools = tools;
   // Drop tool_choice if it references an unknown function name
   if (body.tool_choice && typeof body.tool_choice === "object" && !Array.isArray(body.tool_choice)) {
     if (body.tool_choice.type === "function") {
@@ -126,6 +160,59 @@ function resolveCacheSessionId(body, credentials) {
 
 function normalizeReasoningEffort(value) {
   return value === "max" ? "xhigh" : value;
+}
+
+function ensureInputToolsForCodex56(body) {
+  if (!CODEX_REQUIRES_INPUT_TOOLS_PATTERN.test(String(body?.model || ""))) return;
+  if (!Array.isArray(body.input)) return;
+  const tools = Array.isArray(body.tools) ? body.tools : [];
+  for (const item of body.input) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    if (item.type !== "additional_tools") continue;
+    if (!Array.isArray(item.tools)) item.tools = tools;
+  }
+}
+
+function normalizeCodex56BackendInput(body) {
+  if (!CODEX_REQUIRES_INPUT_TOOLS_PATTERN.test(String(body?.model || ""))) return;
+  if (!Array.isArray(body.input)) return;
+
+  body.input = body.input.filter((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return true;
+
+    if (item.type === "additional_tools") {
+      const { tools } = normalizeCodexToolList(Array.isArray(item.tools) ? item.tools : []);
+      item.tools = tools;
+      keepOnly(item, ["type", "role", "tools"]);
+      return item.tools.length > 0;
+    }
+
+    if (item.type === "reasoning") {
+      keepOnly(item, ["type", "summary", "encrypted_content"]);
+      return !!item.encrypted_content || (Array.isArray(item.summary) && item.summary.length > 0);
+    }
+
+    if (item.type === "function_call_output") {
+      if (typeof item.output !== "string") item.output = extractCodexText(item.content);
+      if (typeof item.output !== "string") item.output = "";
+      keepOnly(item, ["type", "call_id", "output"]);
+      return !!item.call_id;
+    }
+
+    if (item.type === "function_call") {
+      keepOnly(item, ["type", "call_id", "name", "arguments"]);
+      return !!item.call_id && !!item.name;
+    }
+
+    if (item.type === "message" || item.role) {
+      if (!item.type) item.type = "message";
+      item.content = extractCodexText(item.content) || "...";
+      keepOnly(item, ["type", "role", "content", "name"]);
+      return !!item.role;
+    }
+
+    return false;
+  });
 }
 
 function findNestedMessage(value, depth = 0) {
@@ -424,6 +511,7 @@ export class CodexExecutor extends BaseExecutor {
 
     // Map virtual Codex review models to the upstream Codex model before suffix parsing.
     body.model = getModelUpstreamId("cx", body.model || model);
+    ensureInputToolsForCodex56(body);
 
     // Extract thinking level from model name suffix
     // e.g., gpt-5.3-codex-high → high, gpt-5.3-codex → medium (default)
@@ -479,6 +567,9 @@ export class CodexExecutor extends BaseExecutor {
     for (const k of Object.keys(body)) {
       if (!RESPONSES_API_ALLOWLIST.has(k)) delete body[k];
     }
+
+    // GPT-5.6 Codex uses a stricter backend schema than public Responses.
+    normalizeCodex56BackendInput(body);
 
     return body;
   }

@@ -36,6 +36,26 @@ describe("Codex fast tier and capacity handling", () => {
     expect(headers["ChatGPT-Account-ID"]).toBe("acct_1");
   });
 
+  it("does not leak per-message tools for GPT-5.6 Codex models", () => {
+    const executor = new CodexExecutor();
+    const body = executor.transformRequest("gpt-5.6-sol", {
+      model: "gpt-5.6-sol",
+      input: "hi",
+    }, true, {});
+
+    expect(body.input[0].tools).toBeUndefined();
+  });
+
+  it("does not add per-input tools for older Codex models", () => {
+    const executor = new CodexExecutor();
+    const body = executor.transformRequest("gpt-5.5", {
+      model: "gpt-5.5",
+      input: "hi",
+    }, true, {});
+
+    expect(body.input[0].tools).toBeUndefined();
+  });
+
   it("classifies 200-SSE model capacity as account fallback", async () => {
     const executor = new CodexExecutor();
     const response = new Response(streamFromText([

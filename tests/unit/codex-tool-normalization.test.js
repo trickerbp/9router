@@ -20,6 +20,91 @@ function normalizeTools(tools) {
 }
 
 describe("CodexExecutor tool normalization", () => {
+  it("normalizes GPT-5.6 message content for Codex backend", () => {
+    const executor = new CodexExecutor();
+    const body = {
+      model: "gpt-5.6-sol",
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [
+            { type: "input_text", text: "hello" },
+            { type: "input_text", text: "world" },
+          ],
+        },
+      ],
+      stream: true,
+    };
+
+    executor.transformRequest("gpt-5.6-sol", body, true, {
+      connectionId: "test-codex-56-content",
+      providerSpecificData: {},
+    });
+
+    expect(body.input).toEqual([
+      { type: "message", role: "user", content: "hello\nworld" },
+    ]);
+  });
+
+  it("preserves GPT-5.6 VS Code additional_tools without unsupported content", () => {
+    const executor = new CodexExecutor();
+    const body = {
+      model: "gpt-5.6-sol",
+      input: [
+        {
+          type: "additional_tools",
+          role: "developer",
+          content: [{ type: "input_text", text: "ignored" }],
+          status: "completed",
+          tools: [
+            {
+              type: "tool_search",
+              execution: "sync",
+              description: "Discover deferred tools",
+              parameters: { type: "object", properties: {} },
+            },
+            {
+              type: "custom",
+              name: "exec",
+              description: "Run JavaScript code",
+              format: { type: "grammar", syntax: "lark", definition: "start: /.+/" },
+            },
+          ],
+        },
+      ],
+      stream: true,
+    };
+
+    executor.transformRequest("gpt-5.6-sol", body, true, {
+      connectionId: "test-codex-additional-tools",
+      providerSpecificData: {},
+    });
+
+    expect(body.input).toEqual([
+      {
+        type: "additional_tools",
+        role: "developer",
+        tools: [
+          {
+            type: "tool_search",
+            execution: "client",
+            description: "Discover deferred tools",
+            parameters: { type: "object", properties: {} },
+          },
+          {
+            type: "custom",
+            name: "exec",
+            description: "Run JavaScript code",
+            format: { type: "grammar", syntax: "lark", definition: "start: /.+/" },
+          },
+        ],
+      },
+    ]);
+    expect(body.input[0].content).toBeUndefined();
+    expect(body.input[0].status).toBeUndefined();
+  });
+
   it("preserves Responses text.format for structured outputs", () => {
     const executor = new CodexExecutor();
     const schema = {
@@ -96,6 +181,7 @@ describe("CodexExecutor tool normalization", () => {
       "namespace:codex_app",
       "function:plain_fn",
     ]);
+    expect(tools[0].execution).toBe("client");
   });
 
   it("preserves hosted Responses tools", () => {
