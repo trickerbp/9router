@@ -12,7 +12,7 @@ function streamFromText(text) {
 }
 
 describe("Codex fast tier and capacity handling", () => {
-  it("maps Codex fast tier to priority and max reasoning to xhigh", () => {
+  it("maps Codex fast tier to priority and legacy max reasoning to the highest supported effort", () => {
     const executor = new CodexExecutor();
     const body = executor.transformRequest("gpt-5.5", {
       model: "gpt-5.5",
@@ -23,6 +23,27 @@ describe("Codex fast tier and capacity handling", () => {
 
     expect(body.service_tier).toBe("priority");
     expect(body.reasoning.effort).toBe("xhigh");
+
+    const codex56Body = executor.transformRequest("gpt-5.6-sol", {
+      model: "gpt-5.6-sol",
+      input: "hi",
+      reasoning_effort: "max",
+    }, true, {});
+
+    expect(codex56Body.reasoning.effort).toBe("ultra");
+  });
+
+  it("accepts ultra reasoning for GPT-5.6 sol/luna/terra suffixes", () => {
+    for (const model of ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra"]) {
+      const executor = new CodexExecutor();
+      const body = executor.transformRequest(`${model}-ultra`, {
+        model: `${model}-ultra`,
+        input: "hi",
+      }, true, {});
+
+      expect(body.model).toBe(model);
+      expect(body.reasoning.effort).toBe("ultra");
+    }
   });
 
   it("uses ChatGPT workspace header fallback", () => {

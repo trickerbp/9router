@@ -105,6 +105,118 @@ describe("CodexExecutor tool normalization", () => {
     expect(body.input[0].status).toBeUndefined();
   });
 
+  it("preserves GPT-5.6 native tool-call history items", () => {
+    const executor = new CodexExecutor();
+    const body = {
+      model: "gpt-5.6-sol",
+      input: [
+        {
+          type: "custom_tool_call",
+          call_id: "call_custom",
+          name: "apply_patch",
+          input: "*** Begin Patch\n*** End Patch",
+          id: "ctc_1",
+          status: "completed",
+          created_by: "model",
+        },
+        {
+          type: "custom_tool_call_output",
+          call_id: "call_custom",
+          output: [{ type: "input_text", text: "patch applied" }],
+          id: "ctco_1",
+          status: "completed",
+        },
+        {
+          type: "apply_patch_call",
+          call_id: "call_patch",
+          operation: { type: "update_file", path: "src/a.js", diff: "@@\n" },
+          status: "completed",
+          id: "apc_1",
+        },
+        {
+          type: "apply_patch_call_output",
+          call_id: "call_patch",
+          output: "Done",
+          id: "apco_1",
+        },
+        {
+          type: "shell_call",
+          call_id: "call_shell",
+          action: { commands: ["git diff"], timeout_ms: 1000 },
+          status: "completed",
+          id: "sh_1",
+        },
+        {
+          type: "shell_call_output",
+          call_id: "call_shell",
+          output: [
+            {
+              stdout: "clean",
+              stderr: "",
+              outcome: { type: "exit", exit_code: 0 },
+            },
+          ],
+          max_output_length: 1000,
+          status: "completed",
+          id: "sho_1",
+        },
+        { type: "custom_tool_call_output", output: "missing call id" },
+        { type: "unsupported_codex_item", call_id: "drop" },
+      ],
+      stream: true,
+    };
+
+    executor.transformRequest("gpt-5.6-sol", body, true, {
+      connectionId: "test-codex-56-tool-history",
+      providerSpecificData: {},
+    });
+
+    expect(body.input).toEqual([
+      {
+        type: "custom_tool_call",
+        call_id: "call_custom",
+        name: "apply_patch",
+        input: "*** Begin Patch\n*** End Patch",
+      },
+      {
+        type: "custom_tool_call_output",
+        call_id: "call_custom",
+        output: "patch applied",
+      },
+      {
+        type: "apply_patch_call",
+        call_id: "call_patch",
+        operation: { type: "update_file", path: "src/a.js", diff: "@@\n" },
+        status: "completed",
+      },
+      {
+        type: "apply_patch_call_output",
+        call_id: "call_patch",
+        status: "completed",
+        output: "Done",
+      },
+      {
+        type: "shell_call",
+        call_id: "call_shell",
+        action: { commands: ["git diff"], timeout_ms: 1000 },
+        status: "completed",
+      },
+      {
+        type: "shell_call_output",
+        call_id: "call_shell",
+        output: [
+          {
+            stdout: "clean",
+            stderr: "",
+            outcome: { type: "exit", exit_code: 0 },
+          },
+        ],
+        max_output_length: 1000,
+        status: "completed",
+      },
+    ]);
+  });
+
   it("preserves Responses text.format for structured outputs", () => {
     const executor = new CodexExecutor();
     const schema = {

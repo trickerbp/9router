@@ -11,6 +11,7 @@ import { getModelUpstreamId } from "../config/providerModels.js";
 import { DEFAULT_RETRY_CONFIG, HTTP_STATUS, resolveRetryEntry } from "../config/runtimeConfig.js";
 import { dbg } from "../utils/debugLog.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
+import { RESPONSES_ITEM } from "../translator/schema/index.js";
 
 // SSE error patterns inside 200-OK bodies. Some retry same account first; capacity rotates accounts.
 const CODEX_SSE_RETRY_PATTERNS = ["server_is_overloaded", "service_unavailable_error"];
@@ -24,6 +25,8 @@ const CODEX_SSE_USER_OUTPUT_PATTERNS = [
 const CODEX_SSE_PEEK_BYTES = 256 * 1024;
 const CODEX_MODEL_CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model.";
 const CODEX_REQUIRES_INPUT_TOOLS_PATTERN = /^gpt-5\.6-(sol|terra|luna)(?:$|-)/i;
+const CODEX_REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"];
+const CODEX_56_REASONING_EFFORTS = [...CODEX_REASONING_EFFORTS, "ultra"];
 
 // Server-generated item id prefixes that Codex /responses cannot resolve when store=false
 const SERVER_ID_PATTERN = /^(rs|fc|resp|msg)_/;
@@ -44,6 +47,40 @@ const RESPONSES_API_ALLOWLIST = new Set([
   "reasoning", "service_tier", "include", "prompt_cache_key", "client_metadata",
   "text"
 ]);
+
+const CODEX_INPUT_ITEM_FIELD_ALLOWLIST = {
+  [RESPONSES_ITEM.CUSTOM_TOOL_CALL]: ["type", "call_id", "name", "input", "namespace", "caller"],
+  [RESPONSES_ITEM.CUSTOM_TOOL_CALL_OUTPUT]: ["type", "call_id", "output", "caller"],
+  [RESPONSES_ITEM.SHELL_CALL]: ["type", "call_id", "action", "environment", "status", "caller"],
+  [RESPONSES_ITEM.SHELL_CALL_OUTPUT]: ["type", "call_id", "output", "max_output_length", "status", "caller"],
+  [RESPONSES_ITEM.APPLY_PATCH_CALL]: ["type", "call_id", "operation", "status", "caller"],
+  [RESPONSES_ITEM.APPLY_PATCH_CALL_OUTPUT]: ["type", "call_id", "status", "output", "caller"],
+  [RESPONSES_ITEM.LOCAL_SHELL_CALL]: ["type", "id", "call_id", "action", "status"],
+  [RESPONSES_ITEM.LOCAL_SHELL_CALL_OUTPUT]: ["type", "id", "output", "status"],
+  [RESPONSES_ITEM.TOOL_SEARCH_CALL]: ["type", "call_id", "arguments", "execution", "status"],
+  [RESPONSES_ITEM.MCP_LIST_TOOLS]: ["type", "id", "server_label", "tools", "error"],
+  [RESPONSES_ITEM.MCP_APPROVAL_RESPONSE]: ["type", "approval_request_id", "approve", "reason"],
+  [RESPONSES_ITEM.MCP_CALL]: ["type", "id", "arguments", "name", "server_label", "approval_request_id", "error", "output", "status"],
+  [RESPONSES_ITEM.PROGRAM]: ["type", "id", "call_id", "code", "fingerprint"],
+  [RESPONSES_ITEM.PROGRAM_OUTPUT]: ["type", "id", "call_id", "result", "status"],
+};
+
+const CODEX_INPUT_ITEM_REQUIRED_FIELDS = {
+  [RESPONSES_ITEM.CUSTOM_TOOL_CALL]: ["call_id", "name"],
+  [RESPONSES_ITEM.CUSTOM_TOOL_CALL_OUTPUT]: ["call_id"],
+  [RESPONSES_ITEM.SHELL_CALL]: ["call_id", "action"],
+  [RESPONSES_ITEM.SHELL_CALL_OUTPUT]: ["call_id", "output"],
+  [RESPONSES_ITEM.APPLY_PATCH_CALL]: ["call_id", "operation"],
+  [RESPONSES_ITEM.APPLY_PATCH_CALL_OUTPUT]: ["call_id", "status"],
+  [RESPONSES_ITEM.LOCAL_SHELL_CALL]: ["id", "call_id", "action"],
+  [RESPONSES_ITEM.LOCAL_SHELL_CALL_OUTPUT]: ["id", "output"],
+  [RESPONSES_ITEM.TOOL_SEARCH_CALL]: ["arguments"],
+  [RESPONSES_ITEM.MCP_LIST_TOOLS]: ["id", "server_label", "tools"],
+  [RESPONSES_ITEM.MCP_APPROVAL_RESPONSE]: ["approval_request_id"],
+  [RESPONSES_ITEM.MCP_CALL]: ["id", "arguments", "name", "server_label"],
+  [RESPONSES_ITEM.PROGRAM]: ["id", "call_id", "code", "fingerprint"],
+  [RESPONSES_ITEM.PROGRAM_OUTPUT]: ["id", "call_id", "result", "status"],
+};
 
 // Convert role=system → role=developer in body.input (keeps content in cacheable prefix)
 function convertSystemToDeveloperRole(body) {
@@ -76,6 +113,31 @@ function keepOnly(item, keys) {
   for (const key of Object.keys(item)) {
     if (!allowed.has(key)) delete item[key];
   }
+}
+
+function hasCodexInputItemRequiredFields(item) {
+  const required = CODEX_INPUT_ITEM_REQUIRED_FIELDS[item.type] || [];
+  return required.every((key) => item[key] !== undefined && item[key] !== null && item[key] !== "");
+}
+
+function normalizeCodexOutputText(item) {
+  if (typeof item.output !== "string") item.output = extractCodexText(item.output || item.content);
+  if (typeof item.output !== "string") item.output = "";
+}
+
+function normalizeCodexNativeInputItem(item) {
+  const fields = CODEX_INPUT_ITEM_FIELD_ALLOWLIST[item.type];
+  if (!fields) return false;
+
+  if (item.type === RESPONSES_ITEM.CUSTOM_TOOL_CALL && typeof item.input !== "string") item.input = "";
+  if (item.type === RESPONSES_ITEM.CUSTOM_TOOL_CALL_OUTPUT) normalizeCodexOutputText(item);
+  if (item.type === RESPONSES_ITEM.APPLY_PATCH_CALL_OUTPUT && item.status !== "failed") item.status = "completed";
+  if (item.type === RESPONSES_ITEM.APPLY_PATCH_CALL_OUTPUT && item.output != null && typeof item.output !== "string") {
+    item.output = extractCodexText(item.output);
+  }
+
+  keepOnly(item, fields);
+  return hasCodexInputItemRequiredFields(item);
 }
 
 // Strip server-generated item IDs (rs_/fc_/resp_/msg_) from input — avoids 404 with store=false
@@ -158,8 +220,16 @@ function resolveCacheSessionId(body, credentials) {
   });
 }
 
-function normalizeReasoningEffort(value) {
-  return value === "max" ? "xhigh" : value;
+function getCodexReasoningEfforts(model) {
+  return CODEX_REQUIRES_INPUT_TOOLS_PATTERN.test(String(model || ""))
+    ? CODEX_56_REASONING_EFFORTS
+    : CODEX_REASONING_EFFORTS;
+}
+
+function normalizeReasoningEffort(value, model) {
+  if (value !== "max") return value;
+  const levels = getCodexReasoningEfforts(model);
+  return levels[levels.length - 1];
 }
 
 function ensureInputToolsForCodex56(body) {
@@ -193,8 +263,7 @@ function normalizeCodex56BackendInput(body) {
     }
 
     if (item.type === "function_call_output") {
-      if (typeof item.output !== "string") item.output = extractCodexText(item.content);
-      if (typeof item.output !== "string") item.output = "";
+      normalizeCodexOutputText(item);
       keepOnly(item, ["type", "call_id", "output"]);
       return !!item.call_id;
     }
@@ -211,7 +280,7 @@ function normalizeCodex56BackendInput(body) {
       return !!item.role;
     }
 
-    return false;
+    return normalizeCodexNativeInputItem(item);
   });
 }
 
@@ -515,7 +584,7 @@ export class CodexExecutor extends BaseExecutor {
 
     // Extract thinking level from model name suffix
     // e.g., gpt-5.3-codex-high → high, gpt-5.3-codex → medium (default)
-    const effortLevels = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+    const effortLevels = getCodexReasoningEfforts(body.model);
     let modelEffort = null;
     for (const level of effortLevels) {
       if (body.model.endsWith(`-${level}`)) {
@@ -528,10 +597,10 @@ export class CodexExecutor extends BaseExecutor {
 
     // Priority: explicit reasoning.effort > reasoning_effort param > model suffix > default (medium)
     if (!body.reasoning) {
-      const effort = normalizeReasoningEffort(body.reasoning_effort || modelEffort || 'low');
+      const effort = normalizeReasoningEffort(body.reasoning_effort || modelEffort || 'low', body.model);
       body.reasoning = { effort, summary: "auto" };
     } else {
-      body.reasoning.effort = normalizeReasoningEffort(body.reasoning.effort);
+      body.reasoning.effort = normalizeReasoningEffort(body.reasoning.effort, body.model);
       if (!body.reasoning.summary) body.reasoning.summary = "auto";
     }
     delete body.reasoning_effort;

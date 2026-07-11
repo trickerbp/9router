@@ -8,6 +8,7 @@ const L = {
   base: ["none", "low", "medium", "high"],                          // qwen, step, hunyuan, gemini-budget
   onOff: ["none", "thinking"],                                      // zai (binary), minimax (adaptive)
   openai: ["none", "minimal", "low", "medium", "high", "xhigh"],    // GPT-5.x / o-series (no "max")
+  openaiUltra: ["none", "minimal", "low", "medium", "high", "xhigh", "ultra"],
   levelMax: ["none", "low", "medium", "high", "max"],               // claude-adaptive, kimi
   budgetX: ["none", "low", "medium", "high", "xhigh", "max"],       // claude-budget
   gemini: ["minimal", "low", "medium", "high"],                     // gemini-3 thinkingLevel (no disable)
@@ -32,8 +33,9 @@ const FORMAT_LEVELS = {
 
 // Model-name pattern overrides (glob, first match wins) — more precise than format default.
 const PATTERN_THINKING = [
-  // gpt-5.6-sol accepts max (maps to xhigh on wire); live probe rejected ultra.
-  { pattern: "*gpt-5.6-sol*", levels: ["none", "minimal", "low", "medium", "high", "xhigh", "max"] },
+  { pattern: "*gpt-5.6-sol*", levels: L.openaiUltra },
+  { pattern: "*gpt-5.6-terra*", levels: L.openaiUltra },
+  { pattern: "*gpt-5.6-luna*", levels: L.openaiUltra },
   { pattern: "*codex*", levels: ["low", "medium", "high", "xhigh"] }, // codex cannot disable thinking
 ];
 
