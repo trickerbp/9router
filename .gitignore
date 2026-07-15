@@ -78,3 +78,9 @@ open-sse.old/
 .graphifyignore
 graphify-out/*
 .next-analyze/*
+
+# Local-only working dirs (notes, vendored repos, scripts, skills)
+.claude/
+.docs/
+.repo/
+.script/
