@@ -1,14 +1,38 @@
-# v0.5.31 (2026-07-13)
+# v0.5.35 (2026-07-16)
+
+## Features
+- **xAI**: Grok Imagine video generation (`/v1/videos`) + CLI
+- **CLI tools**: Grok Build setup — writes `[model.9router]` to `~/.grok/config.toml`
+- **GitHub Copilot**: route Claude models through Copilot's native `/v1/messages`
+- **Kiro**: add GPT-5.6 model family (#2596)
+- **RTK**: `X-9Router-Token-Saver` header to bypass token savers per request
+- **Providers**: quota visibility settings
+- **Translator**: drop temperature for all Claude models
+- **i18n**: Thai (th) + Persian (fa) translations / README
 
 ## Fixes
-- **Providers**: bulk-add API keys no longer overwrite existing keys. Auto-generated `Key N` names are now gap-filled against existing connection names (and earlier entries in the same batch), so a generated name never collides with a saved one. Previously the bulk-add modal named keys by paste-line index, blind to existing names, and the backend upserts apikey connections by name — so a colliding generated name silently replaced an existing key instead of inserting a new one. Custom `name|apiKey` lines and Cloudflare `name|apiKey|accountId` lines get the same collision-free numbering.
+- **Providers**: bulk-add API keys no longer overwrite existing keys (gap-fill `Key N`)
+- **Anthropic**: lowercase `anthropic-version` header to prevent duplication on `/v1/messages`
+- **Alicode-intl**: use DashScope compatible-mode endpoint so standard keys work
+- **Grok CLI**: align Grok Build with current subscription protocol (#2590)
+- **Grok CLI**: surface `expiresAt` so proactive token refresh fires (#2546)
+- **Kiro**: improve direct session cache reuse
+- **Models**: populate capabilities for live-catalog LLM models
+- **Models**: list compatible provider models in `/v1/models`
+- **Thinking**: send explicit `thinking:{type:adaptive}` alongside `output_config.effort`
+- **Translator**: strip `client_metadata` when converting openai-responses → openai
+
+## Improvements
+- **Perf**: skip inactive background services on startup
+
+## Docs
+- README: Persian YouTube tutorial
 
 # v0.5.30 (2026-07-10)
 
 ## Features
 - **Perplexity**: add Agent API provider (#2492)
 - **Grok CLI**: add Grok CLI / Grok Build provider with OAuth device-code flow (#2502)
-- **CLI tools**: add Grok Build setup — writes `[model.9router]` custom model to `~/.grok/config.toml`
 - **Featherless**: add OpenAI-compatible provider presets
 - **SearXNG**: configure endpoint via SEARXNG_URL env (#2499)
 - **Providers**: add max thinking level for gpt-5.6-sol (#2500)
