@@ -1,3 +1,8 @@
+# v0.5.31 (2026-07-13)
+
+## Fixes
+- **Providers**: bulk-add API keys no longer overwrite existing keys. Auto-generated `Key N` names are now gap-filled against existing connection names (and earlier entries in the same batch), so a generated name never collides with a saved one. Previously the bulk-add modal named keys by paste-line index, blind to existing names, and the backend upserts apikey connections by name — so a colliding generated name silently replaced an existing key instead of inserting a new one. Custom `name|apiKey` lines and Cloudflare `name|apiKey|accountId` lines get the same collision-free numbering.
+
 # v0.5.30 (2026-07-10)
 
 ## Features
