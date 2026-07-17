@@ -10,6 +10,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
+import { getProviderIconSrc, markProviderIconMissing } from "@/shared/utils/providerIcon";
 
 // Force-stop FE animation if a provider stays active longer than this
 const FE_ACTIVE_TIMEOUT_MS = 60000;
@@ -19,9 +20,8 @@ function getProviderConfig(providerId) {
   return AI_PROVIDERS[providerId] || { color: "#6b7280", name: providerId };
 }
 
-// Use local provider images from /public/providers/
 function getProviderImageUrl(providerId) {
-  return `/providers/${providerId}.png`;
+  return getProviderIconSrc(providerId);
 }
 
 // Custom provider node - rectangle with image + name
@@ -47,8 +47,19 @@ function ProviderNode({ data }) {
         className="w-8 h-8 rounded-md flex items-center justify-center shrink-0"
         style={{ backgroundColor: `${color}15` }}
       >
-        {!imgError ? (
-          <img src={imageUrl} alt={label} className="w-6 h-6 rounded-sm object-contain" onError={() => setImgError(true)} />
+        {imageUrl && !imgError ? (
+          <img
+            src={imageUrl}
+            alt={label}
+            className="w-6 h-6 rounded-sm object-contain"
+            loading="lazy"
+            decoding="async"
+            onError={() => {
+              const m = imageUrl?.match(/^\/providers\/([^/]+)\.png$/i);
+              if (m) markProviderIconMissing(m[1]);
+              setImgError(true);
+            }}
+          />
         ) : (
           <span className="text-sm font-bold" style={{ color }}>{textIcon}</span>
         )}
@@ -86,7 +97,7 @@ function RouterNode({ data }) {
       <Handle type="source" position={Position.Left} id="left" className="!bg-transparent !border-0 !w-0 !h-0" />
       <Handle type="source" position={Position.Right} id="right" className="!bg-transparent !border-0 !w-0 !h-0" />
 
-      <img src="/favicon.svg" alt="9Router" className="w-6 h-6 mr-2" />
+      <img src="/favicon.svg" alt="9Router" className="w-6 h-6 mr-2" loading="lazy" decoding="async" />
       <span className="text-sm font-bold text-primary">9Router</span>
       {data.activeCount > 0 && (
         <span className="ml-2 px-1.5 py-0.5 rounded-full bg-primary text-white text-xs font-bold">
