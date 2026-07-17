@@ -71,7 +71,14 @@ export async function getProviderConnections(filter = {}) {
   const db = await getAdapter();
   const where = [];
   const params = [];
-  if (filter.provider) { where.push("provider = ?"); params.push(filter.provider); }
+  if (filter.provider === "kimi") {
+    // Keep OAuth connections created before kimi-coding was merged into kimi.
+    where.push("provider IN (?, ?)");
+    params.push("kimi", "kimi-coding");
+  } else if (filter.provider) {
+    where.push("provider = ?");
+    params.push(filter.provider);
+  }
   if (filter.isActive !== undefined) { where.push("isActive = ?"); params.push(filter.isActive ? 1 : 0); }
   const sql = `SELECT * FROM providerConnections${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`;
   const rows = db.all(sql, params);
