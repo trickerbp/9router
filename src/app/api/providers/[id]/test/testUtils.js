@@ -4,6 +4,7 @@ import { testProxyUrl } from "@/lib/network/proxyTest";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
+import { resolveAlibabaIntlProvider } from "open-sse/providers/shared.js";
 import {
   refreshProviderCredentials,
   shouldRefreshCredentials,
@@ -620,11 +621,11 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         return { valid, error: valid ? null : "Invalid API key" };
       }
       case "alicode":
-      case "alicode-intl": {
-        // Aliyun Coding Plan uses OpenAI-compatible API
-        const aliBaseUrl = connection.provider === "alicode-intl"
-          ? "https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions"
-          : "https://coding.dashscope.aliyuncs.com/v1/chat/completions";
+      case "alicode-intl":
+      case "alims-intl": {
+        // Aliyun Coding Plan uses OpenAI-compatible API; alims-intl uses Model Studio compatible-mode
+        const effectiveProvider = resolveAlibabaIntlProvider(connection.provider, connection.apiKey);
+        const aliBaseUrl = PROVIDERS[effectiveProvider]?.baseUrl;
         const res = await fetchWithConnectionProxy(aliBaseUrl, {
           method: "POST",
           headers: { "Authorization": `Bearer ${connection.apiKey}`, "content-type": "application/json" },

@@ -50,6 +50,19 @@ export const CLAUDE_CLI_SPOOF_HEADERS = {
 // Shared baseUrls
 export const KIMI_CODING_BASE_URL = "https://api.kimi.com/coding/v1/messages";
 
+// Model Studio keys used the alicode-intl id before the provider split. Keep
+// those stored credentials working while sk-sp-* keys stay on Coding Plan.
+export function isAlibabaModelStudioKey(apiKey) {
+  const key = typeof apiKey === "string" ? apiKey.trim().toLowerCase() : "";
+  return key.startsWith("sk-") && !key.startsWith("sk-sp-");
+}
+
+export function resolveAlibabaIntlProvider(provider, apiKey) {
+  return provider === "alicode-intl" && isAlibabaModelStudioKey(apiKey)
+    ? "alims-intl"
+    : provider;
+}
+
 // Default base for dynamic compat providers (openai-compatible-* / anthropic-compatible-*) when user gives no baseUrl
 export const OPENAI_COMPAT_BASE = "https://api.openai.com/v1";
 export const ANTHROPIC_COMPAT_BASE = "https://api.anthropic.com/v1";

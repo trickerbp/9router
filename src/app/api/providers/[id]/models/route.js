@@ -9,6 +9,7 @@ import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
 import { resolveQoderModels } from "open-sse/services/qoderModels.js";
 import { resolveGrokCliModels } from "open-sse/services/grokCliModels.js";
+import { resolveAlibabaIntlProvider } from "open-sse/providers/shared.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 
 const GEMINI_CLI_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
@@ -223,6 +224,14 @@ const PROVIDER_MODELS_CONFIG = {
   },
   "alicode-intl": {
     url: "https://coding-intl.dashscope.aliyuncs.com/v1/models",
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    parseResponse: (data) => data.data || []
+  },
+  "alims-intl": {
+    url: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models",
     method: "GET",
     headers: { "Content-Type": "application/json" },
     authHeader: "Authorization",
@@ -504,7 +513,8 @@ export async function GET(request, { params }) {
       });
     }
 
-    const config = PROVIDER_MODELS_CONFIG[connection.provider];
+    const configProvider = resolveAlibabaIntlProvider(connection.provider, connection.apiKey);
+    const config = PROVIDER_MODELS_CONFIG[configProvider];
     if (!config) {
       return NextResponse.json(
         { error: `Provider ${connection.provider} does not support models listing` },
