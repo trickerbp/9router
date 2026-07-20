@@ -43,4 +43,12 @@ describe("getCapabilitiesForModel", () => {
     expect(getCapabilitiesForModel("kiro", "gpt-5.6-luna-agentic")).toMatchObject(kiroGpt56Expected);
     expect(getCapabilitiesForModel("kiro", "gpt-5.6-sol-thinking-agentic")).toMatchObject(kiroGpt56Expected);
   });
+
+  it("uses ChatGPT backend context windows for Codex GPT 5.6 models", () => {
+    expect(getCapabilitiesForModel("codex", "gpt-5.6-sol").contextWindow).toBe(372000);
+    expect(getCapabilitiesForModel("codex", "openai/gpt-5.6-sol-review").contextWindow).toBe(372000);
+    expect(getCapabilitiesForModel("codex", "gpt-5.6-terra").contextWindow).toBe(272000);
+    expect(getCapabilitiesForModel("codex", "gpt-5.6-luna-review").contextWindow).toBe(272000);
+    expect(getCapabilitiesForModel("openai", "gpt-5.6-sol").contextWindow).toBe(400000);
+  });
 });
