@@ -6,6 +6,7 @@
  */
 
 import crypto from "crypto";
+import { CURSOR_CLIENT_COMMIT, CURSOR_CLIENT_VERSION } from "../config/cursorConstants.js";
 import { v5 as uuidv5 } from "uuid";
 
 /**
@@ -128,7 +129,8 @@ export function buildCursorHeaders(accessToken, machineId = null, ghostMode = tr
     "x-amzn-trace-id": `Root=${crypto.randomUUID()}`,
     "x-client-key": clientKey,
     "x-cursor-checksum": checksum,
-    "x-cursor-client-version": "3.1.0",
+    "x-cursor-client-version": CURSOR_CLIENT_VERSION,
+    "x-cursor-client-commit": CURSOR_CLIENT_COMMIT,
     "x-cursor-client-type": "ide",
     "x-cursor-client-os": os,
     "x-cursor-client-arch": arch,
