@@ -11,6 +11,20 @@ import { GrokCliExecutor, _resetGrokCliTurnStore } from "../../open-sse/executor
 import { translateRequest } from "../../open-sse/translator/index.js";
 
 describe("openai ↔ responses multi-turn reasoning", () => {
+  it("preserves service_tier when converting to Responses", () => {
+    const out = openaiToOpenAIResponsesRequest(
+      "gpt-5.6-sol",
+      {
+        messages: [{ role: "user", content: "hi" }],
+        service_tier: "fast",
+      },
+      true,
+      null
+    );
+
+    expect(out.service_tier).toBe("fast");
+  });
+
   it("openai→responses re-emits reasoning item with summary + encrypted_content", () => {
     const body = {
       model: "grok-4.5",
