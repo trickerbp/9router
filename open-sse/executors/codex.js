@@ -8,6 +8,7 @@ import {
 import { normalizeResponsesInput } from "../translator/formats/responsesApi.js";
 import { fetchImageAsBase64 } from "../translator/concerns/image.js";
 import { getModelUpstreamId } from "../config/providerModels.js";
+import { getThinkingLevels } from "../providers/thinkingLevels.js";
 import { DEFAULT_RETRY_CONFIG, HTTP_STATUS, resolveRetryEntry } from "../config/runtimeConfig.js";
 import { dbg } from "../utils/debugLog.js";
 import { resolveSessionId } from "../utils/sessionManager.js";
@@ -28,7 +29,7 @@ const CODEX_SSE_PEEK_BYTES = 256 * 1024;
 const CODEX_MODEL_CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model.";
 const CODEX_REQUIRES_INPUT_TOOLS_PATTERN = /^gpt-5\.6-(sol|terra|luna)(?:$|-)/i;
 const CODEX_REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh"];
-const CODEX_56_REASONING_EFFORTS = [...CODEX_REASONING_EFFORTS, "ultra"];
+const CODEX_56_REASONING_EFFORTS = [...CODEX_REASONING_EFFORTS, "max", "ultra"];
 const CODEX_REQUEST_CONTEXT = Symbol("codexRequestContext");
 
 // Server-generated item id prefixes that Codex /responses cannot resolve when store=false
@@ -230,9 +231,11 @@ function getCodexReasoningEfforts(model) {
 }
 
 function normalizeReasoningEffort(value, model) {
-  if (value !== "max") return value;
-  const levels = getCodexReasoningEfforts(model);
-  return levels[levels.length - 1];
+  const supportedLevels = getThinkingLevels("codex", model);
+  if (supportedLevels?.includes(value)) return value;
+  if (value === "ultra" && supportedLevels?.includes("max")) return "max";
+  if (value === "max" || value === "ultra") return "xhigh";
+  return value;
 }
 
 function ensureInputToolsForCodex56(body) {

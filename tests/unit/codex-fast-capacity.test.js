@@ -12,7 +12,7 @@ function streamFromText(text) {
 }
 
 describe("Codex fast tier and capacity handling", () => {
-  it("maps Codex fast tier to priority and legacy max reasoning to the highest supported effort", () => {
+  it("maps the fast tier and keeps supported GPT-5.6 Max reasoning", () => {
     const executor = new CodexExecutor();
     const body = executor.transformRequest("gpt-5.5", {
       model: "gpt-5.5",
@@ -30,11 +30,14 @@ describe("Codex fast tier and capacity handling", () => {
       reasoning_effort: "max",
     }, true, {});
 
-    expect(codex56Body.reasoning.effort).toBe("ultra");
+    expect(codex56Body.reasoning.effort).toBe("max");
   });
 
-  it("accepts ultra reasoning for GPT-5.6 sol/luna/terra suffixes", () => {
-    for (const model of ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra"]) {
+  it.each([
+    ["gpt-5.6-sol", "ultra"],
+    ["gpt-5.6-terra", "ultra"],
+    ["gpt-5.6-luna", "max"],
+  ])("normalizes the %s Ultra suffix to %s", (model, expected) => {
       const executor = new CodexExecutor();
       const body = executor.transformRequest(`${model}-ultra`, {
         model: `${model}-ultra`,
@@ -42,8 +45,7 @@ describe("Codex fast tier and capacity handling", () => {
       }, true, {});
 
       expect(body.model).toBe(model);
-      expect(body.reasoning.effort).toBe("ultra");
-    }
+      expect(body.reasoning.effort).toBe(expected);
   });
 
   it("uses ChatGPT workspace header fallback", () => {
@@ -157,5 +159,35 @@ describe("Codex fast tier and capacity handling", () => {
 
     expect(peek.matched).toBeNull();
     await expect(new Response(peek.replacementBody).text()).resolves.toBe(text);
+  });
+});
+
+describe("Codex reasoning normalization", () => {
+  it.each([
+    ["gpt-5.6-sol", "max", "max"],
+    ["gpt-5.6-sol", "ultra", "ultra"],
+    ["gpt-5.6-terra", "max", "max"],
+    ["gpt-5.6-terra", "ultra", "ultra"],
+    ["gpt-5.6-luna", "max", "max"],
+    ["gpt-5.6-luna", "ultra", "max"],
+  ])("normalizes %s effort %s to %s", (model, effort, expected) => {
+    const body = new CodexExecutor().transformRequest(model, {
+      model,
+      input: "hi",
+      reasoning: { effort },
+    }, true, {});
+
+    expect(body.reasoning.effort).toBe(expected);
+  });
+
+  it("resolves review models before applying the reasoning matrix", () => {
+    const body = new CodexExecutor().transformRequest("gpt-5.6-terra-review", {
+      model: "gpt-5.6-terra-review",
+      input: "hi",
+      reasoning_effort: "ultra",
+    }, true, {});
+
+    expect(body.model).toBe("gpt-5.6-terra");
+    expect(body.reasoning.effort).toBe("ultra");
   });
 });
