@@ -358,6 +358,7 @@ const PROVIDER_MODELS_CONFIG = {
     customResolver: async (connection) => {
       const credentials = {
         accessToken: connection.accessToken,
+        apiKey: connection.apiKey,
         refreshToken: connection.refreshToken,
         email: connection.email,
         displayName: connection.displayName,
