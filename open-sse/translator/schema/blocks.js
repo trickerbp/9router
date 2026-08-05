@@ -41,6 +41,7 @@ export const RESPONSES_ITEM = {
   MCP_CALL: "mcp_call",
   PROGRAM: "program",
   PROGRAM_OUTPUT: "program_output",
+  ADDITIONAL_TOOLS: "additional_tools",
   REASONING: "reasoning",
   OUTPUT_TEXT: "output_text",
   INPUT_TEXT: "input_text",
