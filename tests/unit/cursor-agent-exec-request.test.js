@@ -103,7 +103,9 @@ describe("CursorExecutor AgentService exec_request handling", () => {
 
   it("returns a non-200 error body for an unsupported exec request when not streaming", async () => {
     const { result } = await runAgent({
-      frames: [execRequestFrame(11)],
+      // Field 11 is the supported MCP bridge in this fork; field 2 remains an
+      // editor-backed request that 9router cannot service.
+      frames: [execRequestFrame(2)],
       stream: false,
     });
 
