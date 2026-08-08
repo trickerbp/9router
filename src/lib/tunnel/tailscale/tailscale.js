@@ -590,26 +590,32 @@ export async function startDaemonWithPassword(sudoPassword) {
   ];
   if (!wantTun) daemonArgs.push("--tun=userspace-networking");
 
+  let child;
   if (wantTun) {
     // TUN mode: spawn via sudo, password via stdin. Detached so it survives parent exit.
-    const child = spawn("sudo", ["-S", tailscaledBin, ...daemonArgs], {
+    child = spawn("sudo", ["-S", tailscaledBin, ...daemonArgs], {
       detached: true,
       stdio: ["pipe", "ignore", "ignore"],
       cwd: os.tmpdir(),
       env: { ...process.env, PATH: EXTENDED_PATH },
     });
-    child.stdin.write(`${sudoPassword}\n`);
-    child.stdin.end();
-    child.unref();
   } else {
-    const child = spawn(tailscaledBin, daemonArgs, {
+    child = spawn(tailscaledBin, daemonArgs, {
       detached: true,
       stdio: "ignore",
       cwd: os.tmpdir(),
       env: { ...process.env, PATH: EXTENDED_PATH },
     });
-    child.unref();
   }
+
+  // spawn() reports a missing executable asynchronously. Await the spawn event so
+  // ENOENT becomes a normal rejection handled by enableTailscale/watchdog callers.
+  await new Promise((resolve, reject) => {
+    child.once("spawn", resolve);
+    child.once("error", reject);
+  });
+  if (wantTun) child.stdin.end(`${sudoPassword}\n`);
+  child.unref();
 
   // Wait for socket ready
   await new Promise((r) => setTimeout(r, 3000));
