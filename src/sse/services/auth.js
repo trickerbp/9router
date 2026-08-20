@@ -114,9 +114,14 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     }
 
     const settings = await getSettings();
-    // Per-provider strategy overrides global setting
+    // Per-provider strategy overrides global setting.
+    // Hard sequential for codex/openai: 1 request = 1 account in priority order,
+    // acc1 exhausted → acc2, with full context replay. Ignores round-robin.
+    const STRICT_SEQUENTIAL_PROVIDERS = new Set(["codex", "openai"]);
     const providerOverride = (settings.providerStrategies || {})[providerId] || {};
-    const strategy = providerOverride.fallbackStrategy || settings.fallbackStrategy || "fill-first";
+    const strategy = STRICT_SEQUENTIAL_PROVIDERS.has(providerId)
+      ? "fill-first"
+      : (providerOverride.fallbackStrategy || settings.fallbackStrategy || "fill-first");
 
     let connection;
     // Pin to preferred connection if specified and available

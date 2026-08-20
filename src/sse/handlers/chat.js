@@ -300,11 +300,17 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
     if (result.success) return result.response;
 
-    // Mark account unavailable (auto-calculates cooldown with exponential backoff, or precise resetsAtMs)
+    // Sequential 1-request-1-account for codex/openai: only the selected account is called.
+    // Full conversation context (body.messages / body.input) is replayed verbatim on retry,
+    // so account 2 sees the same history as account 1 (store=false, no previous_response_id).
+    const replayMsgs = body?.messages?.length || body?.input?.length || 0;
     const { shouldFallback } = await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, result.resetsAtMs);
 
     if (shouldFallback) {
-      log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);
+      const strictProviders = new Set(["codex", "openai"]);
+      const isStrict = strictProviders.has(provider);
+      const suffix = isStrict && replayMsgs ? ` · replay ${replayMsgs} msgs` : "";
+      log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT${suffix} · tried ${excludeConnectionIds.size + 1} · ${String(result.error || "").slice(0, 120)}`);
       excludeConnectionIds.add(credentials.connectionId);
       lastError = result.error;
       lastStatus = result.status;
