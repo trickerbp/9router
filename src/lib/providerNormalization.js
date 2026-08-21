@@ -1,4 +1,5 @@
 import { AI_PROVIDERS } from "../shared/constants/providers.js";
+import { normalizeRelayBaseUrl, supportsRelayBaseUrl } from "open-sse/providers/relay.js";
 
 /**
  * Detect xAI Grok models by id pattern (grok-*, Grok_*, etc).
@@ -39,6 +40,18 @@ export function normalizeProviderSpecificData(provider, body = {}, providerSpeci
     ).trim();
 
     if (baseUrl) next.baseUrl = baseUrl;
+  }
+
+  // Relay override for claude/codex: normalize here so the stored value is always
+  // the /v1 root, whatever the user pasted, and drop the key when left blank so a
+  // cleared field falls back to the first-party host.
+  if (supportsRelayBaseUrl(provider)) {
+    const relayBaseUrl = normalizeRelayBaseUrl(
+      provider,
+      next.baseUrl || body.baseUrl || body.baseURL || ""
+    );
+    if (relayBaseUrl) next.baseUrl = relayBaseUrl;
+    else delete next.baseUrl;
   }
 
   return Object.keys(next).length > 0 ? next : null;

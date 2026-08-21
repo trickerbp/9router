@@ -1508,6 +1508,13 @@ export default function ProviderDetailPage() {
                 </div>
               </div>
               <div className="flex gap-2">
+                {/* Codex bulk import stays available in both branches — claude/codex
+                    now expose dual auth modes (OAuth + relay API key). */}
+                {providerId === "codex" && (
+                  <Button size="sm" icon="playlist_add" variant="secondary" onClick={() => setShowBulkImportCodex(true)}>
+                    {translate("Bulk Add")}
+                  </Button>
+                )}
                 {hasDualAuthModes ? (
                   <>
                     <Button size="sm" icon="lock" variant="secondary" onClick={triggerOAuthConnection}>
@@ -1522,11 +1529,6 @@ export default function ProviderDetailPage() {
                     {!isCompatible && providerId === "iflow" && (
                       <Button size="sm" icon="cookie" variant="secondary" onClick={() => setShowIFlowCookieModal(true)}>
                         Cookie
-                      </Button>
-                    )}
-                    {providerId === "codex" && (
-                      <Button size="sm" icon="playlist_add" variant="secondary" onClick={() => setShowBulkImportCodex(true)}>
-                        {translate("Bulk Add")}
                       </Button>
                     )}
                     <Button

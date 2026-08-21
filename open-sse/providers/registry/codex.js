@@ -20,6 +20,10 @@ export default {
     },
   },
   category: "oauth",
+  // API key mode exists for relays only: chatgpt.com/backend-api/codex does not
+  // accept a bare key, so such a connection is expected to carry
+  // providerSpecificData.baseUrl pointing at the relay (see providers/relay.js).
+  authModes: ["oauth", "apikey"],
   thinkingConfig: {
     options: [
       "auto",

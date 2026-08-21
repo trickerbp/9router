@@ -1,3 +1,18 @@
+# Unreleased
+
+## Features
+- **Claude Code / Codex**: connections on these two providers accept a relay
+  Base URL + API key. Enter the third-party host (`https://host/v1`) and key on
+  the connection, and 9Router sends the unchanged Claude Code / Codex request —
+  `claude-code-20250219` beta flag, `originator: codex_cli_rs`, `store: false`
+  and the rest — to that host instead of api.anthropic.com / chatgpt.com. The
+  key travels as both `Authorization: Bearer` and `x-api-key`, since relays
+  disagree about which one they read. Unlike an anthropic-compatible /
+  openai-compatible node, the first-party request shape and identity headers
+  survive, which is what a CLI-reselling relay expects. Validation, Test
+  Connection and the model list probe the relay rather than the official
+  endpoint. Leave Base URL blank to keep using the official host.
+
 # v0.5.55 (2026-08-14)
 
 ## Features

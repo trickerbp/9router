@@ -17,6 +17,10 @@ export default {
     deprecationNotice: "RISK_NOTICE",
   },
   category: "oauth",
+  // API key mode covers both a direct Anthropic key and a relay: a connection
+  // may carry providerSpecificData.baseUrl to send this same Claude Code request
+  // shape to a third-party host instead (see providers/relay.js).
+  authModes: ["oauth", "apikey"],
   transport: {
     baseUrl: "https://api.anthropic.com/v1/messages",
     format: "claude",

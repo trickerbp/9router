@@ -5,6 +5,7 @@ import {
   updateProviderConnection,
   deleteProviderConnection,
 } from "@/models";
+import { normalizeRelayBaseUrl, supportsRelayBaseUrl } from "open-sse/providers/relay.js";
 
 function normalizeProxyConfig(body = {}) {
   const hasAnyProxyField =
@@ -139,6 +140,19 @@ export async function PUT(request, { params }) {
         ...(existing.providerSpecificData || {}),
         ...(providerSpecificData || {}),
       };
+
+      // Relay Base URL (claude/codex): normalize whatever the user pasted to the
+      // /v1 root, and treat a cleared field as "back to the first-party host"
+      // rather than a no-op merge that keeps the stale relay.
+      if (
+        supportsRelayBaseUrl(existing.provider) &&
+        providerSpecificData &&
+        Object.prototype.hasOwnProperty.call(providerSpecificData, "baseUrl")
+      ) {
+        const relayBaseUrl = normalizeRelayBaseUrl(existing.provider, providerSpecificData.baseUrl);
+        if (relayBaseUrl) updateData.providerSpecificData.baseUrl = relayBaseUrl;
+        else delete updateData.providerSpecificData.baseUrl;
+      }
 
       if (proxyConfig.hasAnyProxyField) {
         updateData.providerSpecificData.connectionProxyEnabled = proxyConfig.connectionProxyEnabled;

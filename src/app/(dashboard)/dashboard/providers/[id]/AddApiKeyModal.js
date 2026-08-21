@@ -3,7 +3,7 @@
 import { useState } from "react";
 import PropTypes from "prop-types";
 import { Button, Badge, Input, Modal, Select } from "@/shared/components";
-import { AI_PROVIDERS } from "@/shared/constants/providers";
+import { AI_PROVIDERS, supportsRelayBaseUrl, normalizeRelayBaseUrl, RELAY_PROVIDER_PATHS } from "@/shared/constants/providers";
 import { planBulkAdd } from "@/shared/utils/bulkAdd";
 
 const BULK_PLACEHOLDER = `name1|sk-key1\nname2|sk-key2\nsk-key-only-auto-named`;
@@ -20,6 +20,9 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
 
   const isAzure = provider === "azure";
   const isCloudflareAi = provider === "cloudflare-ai";
+  // claude/codex accept a relay: same request shape, third-party host + key.
+  const supportsRelay = supportsRelayBaseUrl(provider);
+  const relayPath = RELAY_PROVIDER_PATHS[provider] || "";
   const providerRegions = AI_PROVIDERS?.[provider]?.regions || null;
   const defaultRegion = AI_PROVIDERS?.[provider]?.defaultRegion || providerRegions?.[0]?.id || "";
 
@@ -30,6 +33,7 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
     priority: 1,
     proxyPoolId: NONE_PROXY_POOL_VALUE,
     ollamaHostUrl: "",
+    relayBaseUrl: "",
   });
   const [azureData, setAzureData] = useState({
     azureEndpoint: "",
@@ -53,6 +57,10 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
   const [bulkResult, setBulkResult] = useState(null); // { success, failed }
 
   const buildProviderSpecificData = () => {
+    if (supportsRelay) {
+      const baseUrl = formData.relayBaseUrl.trim();
+      return baseUrl ? { baseUrl } : undefined;
+    }
     if (isOllamaLocal && formData.ollamaHostUrl.trim()) {
       return { baseUrl: formData.ollamaHostUrl.trim() };
     }
@@ -270,6 +278,30 @@ export default function AddApiKeyModal({ isOpen, provider, providerName, isCompa
           <p className="text-xs text-text-muted">
             Use a direct xAI API key from console.x.ai. This is separate from Grok Build OAuth.
           </p>
+        )}
+        {supportsRelay && (
+          <>
+            <Input
+              label="Base URL (optional)"
+              value={formData.relayBaseUrl}
+              onChange={(e) => setFormData({ ...formData, relayBaseUrl: e.target.value })}
+              placeholder="https://your-relay.example/v1"
+              hint="Leave blank to use the official endpoint. Paste the relay base URL exactly as its docs give it — with or without /v1; nothing is added or removed."
+            />
+            {(() => {
+              const resolved = normalizeRelayBaseUrl(provider, formData.relayBaseUrl);
+              return resolved ? (
+                <p className="text-xs text-text-muted break-all">
+                  Requests will go to <code>{resolved}{relayPath}</code>
+                </p>
+              ) : null;
+            })()}
+            <p className="text-xs text-text-muted">
+              9Router keeps the {provider === "codex" ? "Codex" : "Claude Code"} request format and
+              identity headers, so relays that resell CLI access work unchanged. The key is sent as
+              both <code>Authorization: Bearer</code> and <code>x-api-key</code>.
+            </p>
+          </>
         )}
         {isCookie && authHint && (
           <p className="text-xs text-text-muted">

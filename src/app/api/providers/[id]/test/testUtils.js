@@ -1,7 +1,7 @@
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, resolveRelayBaseUrl } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
 import { resolveAlibabaIntlProvider } from "open-sse/providers/shared.js";
@@ -467,6 +467,27 @@ async function fetchWithConnectionProxy(url, options = {}, effectiveProxy = null
 }
 
 async function testApiKeyConnection(connection, effectiveProxy = null) {
+  // Relay connection (claude/codex with a per-connection Base URL): probe the
+  // relay. Falling through would send the relay key to the official host.
+  const relayBaseUrl = resolveRelayBaseUrl(connection.provider, connection.providerSpecificData);
+  if (relayBaseUrl) {
+    try {
+      const res = await fetchWithConnectionProxy(`${relayBaseUrl}/models`, {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${connection.apiKey}`,
+          "x-api-key": connection.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+      }, effectiveProxy);
+      // Only an auth rejection condemns the key — relays often lack /models.
+      const valid = res.status !== 401 && res.status !== 403;
+      return { valid, error: valid ? null : "Invalid API key or Base URL" };
+    } catch (err) {
+      return { valid: false, error: err.message };
+    }
+  }
+
   if (isOpenAICompatibleProvider(connection.provider)) {
     const modelsBase = connection.providerSpecificData?.baseUrl;
     if (!modelsBase) return { valid: false, error: "Missing base URL" };

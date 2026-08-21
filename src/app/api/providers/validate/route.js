@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getProviderNodeById } from "@/models";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider, AI_PROVIDERS } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider, AI_PROVIDERS, resolveRelayBaseUrl } from "@/shared/constants/providers";
+import { ANTHROPIC_API_VERSION } from "open-sse/providers/shared.js";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, resolveXiaomiTokenplanBaseUrl, PROVIDERS } from "open-sse/config/providers.js";
 import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
@@ -95,6 +96,31 @@ export async function POST(request) {
 
     let isValid = false;
     let error = null;
+
+    // Relay override (claude/codex pointed at a third-party host): probe the
+    // relay's own /models instead of the official endpoint. Doing this first
+    // matters for more than correctness — the fall-through branches would send
+    // the relay key to api.anthropic.com / chatgpt.com.
+    const relayBaseUrl = resolveRelayBaseUrl(provider, providerSpecificData);
+    if (relayBaseUrl) {
+      try {
+        const res = await fetch(`${relayBaseUrl}/models`, {
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "x-api-key": apiKey,
+            "anthropic-version": ANTHROPIC_API_VERSION,
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        // Relays are inconsistent about exposing /models, so only an auth
+        // rejection is treated as a bad key — a 404 still means the key passed.
+        isValid = res.status !== 401 && res.status !== 403;
+        return NextResponse.json({ valid: isValid, error: isValid ? null : "Invalid API key" });
+      } catch (err) {
+        return NextResponse.json({ valid: false, error: `Relay unreachable: ${err.message}` });
+      }
+    }
 
     // Validate with each provider
     try {

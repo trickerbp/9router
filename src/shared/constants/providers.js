@@ -98,6 +98,10 @@ export function isCustomEmbeddingProvider(providerId) {
   return typeof providerId === "string" && providerId.startsWith(CUSTOM_EMBEDDING_PREFIX);
 }
 
+// Providers whose connections may override the upstream host with a relay
+// Base URL + key (Claude Code, Codex) — single source of truth in open-sse.
+export { supportsRelayBaseUrl, resolveRelayBaseUrl, normalizeRelayBaseUrl, RELAY_PROVIDER_PATHS } from "open-sse/providers/relay.js";
+
 // All providers (combined)
 export const AI_PROVIDERS = { ...FREE_PROVIDERS, ...FREE_TIER_PROVIDERS, ...OAUTH_PROVIDERS, ...APIKEY_PROVIDERS, ...WEB_COOKIE_PROVIDERS };
 

@@ -4,6 +4,7 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { dbg } from "../utils/debugLog.js";
 import { ANTHROPIC_API_VERSION, OPENAI_COMPAT_BASE, ANTHROPIC_COMPAT_BASE } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
+import { applyRelayAuthHeaders, resolveRelayUrl } from "../providers/relay.js";
 
 /**
  * BaseExecutor - Base class for provider executors
@@ -39,6 +40,9 @@ export class BaseExecutor {
       const normalized = baseUrl.replace(/\/$/, "");
       return `${normalized}/messages`;
     }
+    // Per-connection relay override (claude/codex) — same wire format, different host.
+    const relayUrl = resolveRelayUrl(this.provider, credentials);
+    if (relayUrl) return relayUrl;
     const baseUrls = this.getBaseUrls();
     return baseUrls[urlIndex] || baseUrls[0] || this.config.baseUrl;
   }
@@ -70,6 +74,11 @@ export class BaseExecutor {
 
     if (stream) {
       headers["Accept"] = "text/event-stream";
+    }
+
+    // Relay connections accept the credential as bearer, x-api-key, or either.
+    if (resolveRelayUrl(this.provider, credentials)) {
+      applyRelayAuthHeaders(headers, credentials);
     }
 
     return headers;

@@ -6,7 +6,7 @@ import Modal from "@/shared/components/Modal";
 import Input from "@/shared/components/Input";
 import Button from "@/shared/components/Button";
 import Badge from "@/shared/components/Badge";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS, supportsRelayBaseUrl, normalizeRelayBaseUrl, RELAY_PROVIDER_PATHS } from "@/shared/constants/providers";
 import Select from "@/shared/components/Select";
 
 export default function EditConnectionModal({ isOpen, connection, proxyPools, onSave, onClose }) {
@@ -22,6 +22,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     organization: "",
   });
   const [cloudflareData, setCloudflareData] = useState({ accountId: "" });
+  const [relayBaseUrl, setRelayBaseUrl] = useState("");
   const [region, setRegion] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
@@ -48,6 +49,11 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       if (connection.provider === "cloudflare-ai" && connection.providerSpecificData) {
         setCloudflareData({ accountId: connection.providerSpecificData.accountId || "" });
       }
+      setRelayBaseUrl(
+        supportsRelayBaseUrl(connection.provider)
+          ? (connection.providerSpecificData?.baseUrl || "")
+          : ""
+      );
       // Load region for providers that support it (e.g. xiaomi-tokenplan)
       const providerCfg = AI_PROVIDERS?.[connection.provider];
       if (providerCfg?.regions) {
@@ -66,6 +72,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     ? (isOpenAICompatibleProvider(connection.provider) || isAnthropicCompatibleProvider(connection.provider))
     : false;
   const providerRegions = connection ? (AI_PROVIDERS?.[connection.provider]?.regions || null) : null;
+  // Relay Base URL override — API-key connections on claude/codex only.
+  const isRelayCapable = !isOAuth && supportsRelayBaseUrl(connection?.provider);
+  const relayPath = RELAY_PROVIDER_PATHS[connection?.provider] || "";
+  const relayValidationData = () => (isRelayCapable ? { baseUrl: relayBaseUrl.trim() } : undefined);
 
   // Build providerSpecificData for region-aware providers
   const buildRegionSpecificData = () => {
@@ -102,6 +112,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           ...(isAzure ? { providerSpecificData: azureData } : {}),
           ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
           ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
+          ...(isRelayCapable ? { providerSpecificData: relayValidationData() } : {}),
         }),
       });
       const data = await res.json();
@@ -137,6 +148,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
                 ...(isAzure ? { providerSpecificData: azureData } : {}),
                 ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
                 ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
+                ...(isRelayCapable ? { providerSpecificData: relayValidationData() } : {}),
               }),
             });
             const data = await res.json();
@@ -170,6 +182,13 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       // Persist updated region for region-aware providers
       if (providerRegions && region) {
         updates.providerSpecificData = buildRegionSpecificData();
+      }
+      // Always send the key so clearing the field drops back to the official host.
+      if (isRelayCapable) {
+        updates.providerSpecificData = {
+          ...(updates.providerSpecificData || {}),
+          baseUrl: relayBaseUrl.trim(),
+        };
       }
       
       await onSave(updates);
@@ -262,6 +281,24 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
               />
             </div>
           </div>
+        )}
+
+        {isRelayCapable && (
+          <>
+            <Input
+              label="Base URL (optional)"
+              value={relayBaseUrl}
+              onChange={(e) => setRelayBaseUrl(e.target.value)}
+              placeholder="https://your-relay.example/v1"
+              hint="Relay base URL for this key, with or without /v1. Clear it to go back to the official endpoint."
+            />
+            {normalizeRelayBaseUrl(connection.provider, relayBaseUrl) && (
+              <p className="text-xs text-text-muted break-all">
+                Requests will go to{" "}
+                <code>{normalizeRelayBaseUrl(connection.provider, relayBaseUrl)}{relayPath}</code>
+              </p>
+            )}
+          </>
         )}
 
         {providerRegions && (

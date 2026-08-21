@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getProviderConnectionById } from "@/models";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, resolveRelayBaseUrl } from "@/shared/constants/providers";
 import { GEMINI_CONFIG } from "@/lib/oauth/constants/oauth";
 import { refreshGoogleToken, refreshCodexToken, updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveOllamaLocalHost } from "open-sse/config/providers.js";
@@ -524,9 +524,51 @@ export async function GET(request, { params }) {
       });
     }
 
+    // Relay connection (claude/codex with a per-connection Base URL): ask the
+    // relay for its catalogue. The official PROVIDER_MODELS_CONFIG branch below
+    // would send this key to api.anthropic.com / chatgpt.com instead.
+    const relayBaseUrl = resolveRelayBaseUrl(connection.provider, connection.providerSpecificData);
+    if (relayBaseUrl) {
+      const staticModels = getStaticProviderModels(connection.provider);
+      let warning;
+      try {
+        const response = await fetch(`${relayBaseUrl}/models`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${connection.apiKey}`,
+            "x-api-key": connection.apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const models = parseOpenAIStyleModels(data);
+          if (models.length > 0) {
+            return NextResponse.json({
+              provider: connection.provider,
+              connectionId: connection.id,
+              models,
+            });
+          }
+          warning = "Relay returned no models — showing the built-in list";
+        } else {
+          warning = `Relay /models: ${response.status} — showing the built-in list`;
+        }
+      } catch (err) {
+        warning = `Relay /models unreachable (${err.message}) — showing the built-in list`;
+      }
+      // Many relays never expose /models; the built-in catalogue still routes fine.
+      return NextResponse.json({
+        provider: connection.provider,
+        connectionId: connection.id,
+        models: staticModels,
+        warning,
+      });
+    }
+
     const configProvider = resolveAlibabaIntlProvider(connection.provider, connection.apiKey);
-    const config = PROVIDER_MODELS_CONFIG[configProvider];
-    if (!config) {
+    const config = PROVIDER_MODELS_CONFIG[configProvider];    if (!config) {
       return NextResponse.json(
         { error: `Provider ${connection.provider} does not support models listing` },
         { status: 400 }

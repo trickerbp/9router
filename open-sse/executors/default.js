@@ -8,6 +8,7 @@ import {
   selectAnthropicBeta,
 } from "../providers/shared.js";
 import { resolveOpenAICompatibleApiType } from "../services/provider.js";
+import { applyRelayAuthHeaders, resolveRelayUrl } from "../providers/relay.js";
 import { OAUTH_ENDPOINTS, buildKimiHeaders } from "../config/appConstants.js";
 import { buildClineHeaders } from "../shared/clineAuth.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
@@ -113,6 +114,10 @@ export class DefaultExecutor extends BaseExecutor {
     if (rt?.baseUrl) {
       return rt.urlSuffix ? `${rt.baseUrl}${rt.urlSuffix}` : rt.baseUrl;
     }
+    // Per-connection relay override (claude/codex). Checked before urlSuffix on
+    // purpose: `?beta=true` is an api.anthropic.com flag, not a relay one.
+    const relayUrl = resolveRelayUrl(this.provider, credentials);
+    if (relayUrl) return relayUrl;
     const effectiveProvider = resolveAlibabaIntlProvider(this.provider, credentials?.apiKey);
     if (effectiveProvider !== this.provider) {
       return PROVIDERS[effectiveProvider].baseUrl;
@@ -166,6 +171,14 @@ export class DefaultExecutor extends BaseExecutor {
 
     if (this.provider === "claude" && model) {
       headers["Anthropic-Beta"] = selectAnthropicBeta(model);
+    }
+
+    // Relay connections (claude/codex pointed at a third-party host) keep the
+    // first-party request shape — that is the point of routing them here rather
+    // than through a compat node — but accept the credential as bearer,
+    // x-api-key, or either, so send both.
+    if (resolveRelayUrl(this.provider, credentials)) {
+      applyRelayAuthHeaders(headers, credentials);
     }
 
     // Strip first-party Claude Code identity headers for non-Anthropic anthropic-compatible upstreams
