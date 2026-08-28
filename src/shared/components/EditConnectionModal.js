@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import Modal from "@/shared/components/Modal";
 import Input from "@/shared/components/Input";
@@ -28,10 +28,15 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const [testResult, setTestResult] = useState(null);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [validationError, setValidationError] = useState("");
+  const [validatedRelayBaseUrl, setValidatedRelayBaseUrl] = useState(null);
+  const initialRelayBaseUrlRef = useRef("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (connection) {
+      // Reset the editable form when the selected connection changes.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFormData({
         name: connection.name || "",
         priority: connection.priority || 1,
@@ -49,11 +54,11 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       if (connection.provider === "cloudflare-ai" && connection.providerSpecificData) {
         setCloudflareData({ accountId: connection.providerSpecificData.accountId || "" });
       }
-      setRelayBaseUrl(
-        supportsRelayBaseUrl(connection.provider)
-          ? (connection.providerSpecificData?.baseUrl || "")
-          : ""
-      );
+      const savedRelayBaseUrl = supportsRelayBaseUrl(connection.provider)
+        ? (connection.providerSpecificData?.baseUrl || "")
+        : "";
+      setRelayBaseUrl(savedRelayBaseUrl);
+      initialRelayBaseUrlRef.current = savedRelayBaseUrl;
       // Load region for providers that support it (e.g. xiaomi-tokenplan)
       const providerCfg = AI_PROVIDERS?.[connection.provider];
       if (providerCfg?.regions) {
@@ -62,6 +67,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
       }
       setTestResult(null);
       setValidationResult(null);
+      setValidationError("");
+      setValidatedRelayBaseUrl(null);
     }
   }, [connection]);
 
@@ -75,7 +82,12 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   // Relay Base URL override — API-key connections on claude/codex only.
   const isRelayCapable = !isOAuth && supportsRelayBaseUrl(connection?.provider);
   const relayPath = RELAY_PROVIDER_PATHS[connection?.provider] || "";
-  const relayValidationData = () => (isRelayCapable ? { baseUrl: relayBaseUrl.trim() } : undefined);
+  const normalizedRelayBaseUrl = isRelayCapable
+    ? (normalizeRelayBaseUrl(connection.provider, relayBaseUrl) || "")
+    : "";
+  const hasRelayBaseUrlChanged = () => isRelayCapable && normalizedRelayBaseUrl !== (
+    normalizeRelayBaseUrl(connection.provider, initialRelayBaseUrlRef.current) || ""
+  );
 
   // Build providerSpecificData for region-aware providers
   const buildRegionSpecificData = () => {
@@ -83,11 +95,62 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     return undefined;
   };
 
+  const buildValidationPayload = () => {
+    const payload = { provider: connection.provider };
+    const enteredApiKey = formData.apiKey.trim();
+    if (enteredApiKey) payload.apiKey = enteredApiKey;
+    else if (isRelayCapable) payload.connectionId = connection.id;
+    if (typeof connection.defaultModel === "string" && connection.defaultModel.trim()) {
+      payload.defaultModel = connection.defaultModel.trim();
+    }
+
+    let specificData;
+    if (isAzure) specificData = { ...azureData };
+    else if (isCloudflareAi) specificData = { ...cloudflareData };
+    else if (providerRegions) specificData = buildRegionSpecificData();
+    if (isRelayCapable) specificData = { ...(specificData || {}), baseUrl: relayBaseUrl.trim() };
+    if (specificData && Object.keys(specificData).length > 0) payload.providerSpecificData = specificData;
+    return payload;
+  };
+
+  const validateCurrentSettings = async () => {
+    setValidating(true);
+    setValidationResult(null);
+    setValidationError("");
+    try {
+      const res = await fetch("/api/providers/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(buildValidationPayload()),
+      });
+      const data = await res.json().catch(() => ({}));
+      const valid = res.ok && !!data.valid;
+      setValidationResult(valid ? "success" : "failed");
+      setValidationError(valid ? "" : (data.error || "Validation failed"));
+      if (valid && isRelayCapable) setValidatedRelayBaseUrl(normalizedRelayBaseUrl);
+      return { valid, error: valid ? null : (data.error || "Validation failed") };
+    } catch (error) {
+      const message = error?.message || "Validation failed";
+      setValidationResult("failed");
+      setValidationError(message);
+      return { valid: false, error: message };
+    } finally {
+      setValidating(false);
+    }
+  };
+
   const handleTest = async () => {
     if (!connection?.provider) return;
     setTesting(true);
     setTestResult(null);
     try {
+      // Unsaved relay settings (including a blank key or changed Base URL) are
+      // checked through the same server-side inference probe used before save.
+      if (isRelayCapable && (formData.apiKey.trim() || hasRelayBaseUrlChanged())) {
+        const result = await validateCurrentSettings();
+        setTestResult(result.valid ? "success" : "failed");
+        return;
+      }
       const res = await fetch(`/api/providers/${connection.id}/test`, { method: "POST" });
       const data = await res.json();
       setTestResult(data.valid ? "success" : "failed");
@@ -99,29 +162,8 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   };
 
   const handleValidate = async () => {
-    if (!connection?.provider || !formData.apiKey) return;
-    setValidating(true);
-    setValidationResult(null);
-    try {
-      const res = await fetch("/api/providers/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: connection.provider,
-          apiKey: formData.apiKey,
-          ...(isAzure ? { providerSpecificData: azureData } : {}),
-          ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
-          ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
-          ...(isRelayCapable ? { providerSpecificData: relayValidationData() } : {}),
-        }),
-      });
-      const data = await res.json();
-      setValidationResult(data.valid ? "success" : "failed");
-    } catch {
-      setValidationResult("failed");
-    } finally {
-      setValidating(false);
-    }
+    if (!connection?.provider || (!formData.apiKey.trim() && !isRelayCapable)) return;
+    await validateCurrentSettings();
   };
 
   const handleSubmit = async () => {
@@ -132,39 +174,21 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         name: formData.name,
         priority: formData.priority,
       };
-      if (!isOAuth && formData.apiKey) {
-        updates.apiKey = formData.apiKey;
-        let isValid = validationResult === "success";
-        if (!isValid) {
-          try {
-            setValidating(true);
-            setValidationResult(null);
-            const res = await fetch("/api/providers/validate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                provider: connection.provider,
-                apiKey: formData.apiKey,
-                ...(isAzure ? { providerSpecificData: azureData } : {}),
-                ...(isCloudflareAi ? { providerSpecificData: cloudflareData } : {}),
-                ...(providerRegions ? { providerSpecificData: buildRegionSpecificData() } : {}),
-                ...(isRelayCapable ? { providerSpecificData: relayValidationData() } : {}),
-              }),
-            });
-            const data = await res.json();
-            isValid = !!data.valid;
-            setValidationResult(isValid ? "success" : "failed");
-          } catch {
-            setValidationResult("failed");
-          } finally {
-            setValidating(false);
-          }
+      const enteredApiKey = formData.apiKey.trim();
+      const needsValidation = !isOAuth && (Boolean(enteredApiKey) || (isRelayCapable && hasRelayBaseUrlChanged()));
+      if (needsValidation) {
+        const alreadyValidated =
+          validationResult === "success" &&
+          (!isRelayCapable || validatedRelayBaseUrl === normalizedRelayBaseUrl);
+        const result = alreadyValidated ? { valid: true } : await validateCurrentSettings();
+        if (!result.valid) {
+          // Do not persist a new secret or an unverified relay endpoint.
+          return;
         }
-        if (isValid) {
-          updates.testStatus = "active";
-          updates.lastError = null;
-          updates.lastErrorAt = null;
-        }
+        if (enteredApiKey) updates.apiKey = enteredApiKey;
+        updates.testStatus = "active";
+        updates.lastError = null;
+        updates.lastErrorAt = null;
       }
       
       // Add Azure-specific data if this is an Azure connection
@@ -228,13 +252,18 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
                 label="API Key"
                 type="password"
                 value={formData.apiKey}
-                onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+                onChange={(e) => {
+                  setFormData({ ...formData, apiKey: e.target.value });
+                  setValidationResult(null);
+                  setValidationError("");
+                  setValidatedRelayBaseUrl(null);
+                }}
                 placeholder="Enter new API key"
                 hint="Leave blank to keep the current API key."
                 className="flex-1"
               />
               <div className="pt-6">
-                <Button onClick={handleValidate} disabled={!formData.apiKey || validating || saving} variant="secondary">
+                <Button onClick={handleValidate} disabled={(!formData.apiKey.trim() && !isRelayCapable) || validating || saving} variant="secondary">
                   {validating ? "Checking..." : "Check"}
                 </Button>
               </div>
@@ -243,6 +272,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
               <Badge variant={validationResult === "success" ? "success" : "error"}>
                 {validationResult === "success" ? "Valid" : "Invalid"}
               </Badge>
+            )}
+            {validationError && (
+              <p className="text-xs text-red-500 break-words">{validationError}</p>
             )}
           </>
         )}
@@ -288,7 +320,13 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
             <Input
               label="Base URL (optional)"
               value={relayBaseUrl}
-              onChange={(e) => setRelayBaseUrl(e.target.value)}
+              onChange={(e) => {
+                setRelayBaseUrl(e.target.value);
+                setValidationResult(null);
+                setValidationError("");
+                setValidatedRelayBaseUrl(null);
+                setTestResult(null);
+              }}
               placeholder="https://your-relay.example/v1"
               hint="Relay base URL for this key, with or without /v1. Clear it to go back to the official endpoint."
             />
@@ -301,6 +339,19 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           </>
         )}
 
+        {isRelayCapable && (
+          <div className="flex items-center gap-3">
+            <Button onClick={handleTest} variant="secondary" disabled={testing || saving}>
+              {testing ? "Testing..." : formData.apiKey ? "Test New Settings" : "Test Saved Connection"}
+            </Button>
+            {testResult && (
+              <Badge variant={testResult === "success" ? "success" : "error"}>
+                {testResult === "success" ? "Valid" : "Failed"}
+              </Badge>
+            )}
+          </div>
+        )}
+
         {providerRegions && (
           <Select
             label="Region"
@@ -310,7 +361,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           />
         )}
 
-        {!isCompatible && !isAzure && !isCloudflareAi && (
+        {!isCompatible && !isAzure && !isCloudflareAi && !isRelayCapable && (
           <div className="flex items-center gap-3">
             <Button onClick={handleTest} variant="secondary" disabled={testing}>
               {testing ? "Testing..." : "Test Connection"}
@@ -341,6 +392,7 @@ EditConnectionModal.propTypes = {
     priority: PropTypes.number,
     authType: PropTypes.string,
     provider: PropTypes.string,
+    defaultModel: PropTypes.string,
     providerSpecificData: PropTypes.object,
   }),
   proxyPools: PropTypes.arrayOf(PropTypes.shape({
@@ -350,4 +402,3 @@ EditConnectionModal.propTypes = {
   onSave: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
 };
-

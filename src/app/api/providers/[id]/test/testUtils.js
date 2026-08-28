@@ -1,7 +1,7 @@
 import { getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { testProxyUrl } from "@/lib/network/proxyTest";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, resolveRelayBaseUrl } from "@/shared/constants/providers";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, supportsRelayBaseUrl, resolveRelayBaseUrl, normalizeRelayBaseUrl } from "@/shared/constants/providers";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js";
 import { resolveAlibabaIntlProvider } from "open-sse/providers/shared.js";
@@ -19,6 +19,7 @@ import {
   KIMCHI_CONFIG,
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
+import { probeRelayConnection } from "open-sse/providers/relayProbe.js";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -470,22 +471,18 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
   // Relay connection (claude/codex with a per-connection Base URL): probe the
   // relay. Falling through would send the relay key to the official host.
   const relayBaseUrl = resolveRelayBaseUrl(connection.provider, connection.providerSpecificData);
-  if (relayBaseUrl) {
-    try {
-      const res = await fetchWithConnectionProxy(`${relayBaseUrl}/models`, {
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${connection.apiKey}`,
-          "x-api-key": connection.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-      }, effectiveProxy);
-      // Only an auth rejection condemns the key — relays often lack /models.
-      const valid = res.status !== 401 && res.status !== 403;
-      return { valid, error: valid ? null : "Invalid API key or Base URL" };
-    } catch (err) {
-      return { valid: false, error: err.message };
-    }
+  const officialProbeBaseUrl = supportsRelayBaseUrl(connection.provider)
+    ? normalizeRelayBaseUrl(connection.provider, PROVIDERS[connection.provider]?.baseUrl)
+    : null;
+  if (relayBaseUrl || officialProbeBaseUrl) {
+    return probeRelayConnection({
+      provider: connection.provider,
+      baseUrl: relayBaseUrl || officialProbeBaseUrl,
+      apiKey: connection.apiKey,
+      preferredModel: connection.defaultModel || getDefaultModel(connection.provider),
+      fetchFn: (url, options) => fetchWithConnectionProxy(url, options, effectiveProxy),
+      signal: AbortSignal.timeout(15000),
+    });
   }
 
   if (isOpenAICompatibleProvider(connection.provider)) {

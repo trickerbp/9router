@@ -7,7 +7,7 @@ import {
   extractApiKey,
   isValidApiKey,
 } from "../services/auth.js";
-import { getSettings } from "@/lib/localDb";
+import { getSettings, getProviderConnections } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
@@ -19,6 +19,8 @@ import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActi
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
+import { detectClientTool } from "open-sse/utils/clientDetector.js";
+import { resolveNativeCliFallbackProvider } from "open-sse/utils/nativeModelRouting.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
 import { getProjectIdForConnection } from "open-sse/services/projectId.js";
@@ -155,6 +157,20 @@ export async function handleChat(request, clientRawRequest = null) {
 }
 
 /**
+ * True when the provider has at least one active connection. Used only to decide
+ * whether a native-CLI provider fallback is warranted, so a cheap existence
+ * check is enough — account selection itself stays in getProviderCredentials.
+ */
+async function hasAnyActiveConnection(provider) {
+  try {
+    const connections = await getProviderConnections({ provider, isActive: true });
+    return Array.isArray(connections) && connections.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Handle single model chat request
  */
 async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null) {
@@ -212,7 +228,25 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
   }
 
-  const { provider, model } = modelInfo;
+  const { provider: inferredProvider, model } = modelInfo;
+
+  // Native CLI clients send a bare model id, so the provider was guessed from
+  // the model prefix. If that guess has no connections at all, retry the
+  // first-party CLI provider before failing — a Claude Code relay/OAuth account
+  // lives under `claude`, not `anthropic`.
+  let provider = inferredProvider;
+  const nativeFallbackProvider = resolveNativeCliFallbackProvider({
+    provider: inferredProvider,
+    model,
+    endpoint: clientRawRequest?.endpoint || (request?.url ? new URL(request.url).pathname : ""),
+    clientTool: detectClientTool(clientRawRequest?.headers || {}, body),
+  });
+  if (nativeFallbackProvider && !(await hasAnyActiveConnection(inferredProvider))) {
+    if (await hasAnyActiveConnection(nativeFallbackProvider)) {
+      log.info("CHAT", `No ${inferredProvider} connection for native CLI model "${model}" → using ${nativeFallbackProvider}`);
+      provider = nativeFallbackProvider;
+    }
+  }
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getProviderNodeById } from "@/models";
-import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider, AI_PROVIDERS, resolveRelayBaseUrl } from "@/shared/constants/providers";
-import { ANTHROPIC_API_VERSION } from "open-sse/providers/shared.js";
+import { getProviderConnectionById, getProviderNodeById } from "@/models";
+import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider, isCustomEmbeddingProvider, AI_PROVIDERS, supportsRelayBaseUrl, resolveRelayBaseUrl, normalizeRelayBaseUrl } from "@/shared/constants/providers";
+import { probeRelayConnection } from "open-sse/providers/relayProbe.js";
 import { getDefaultModel } from "open-sse/config/providerModels.js";
 import { resolveOllamaLocalHost, resolveXiaomiTokenplanBaseUrl, PROVIDERS } from "open-sse/config/providers.js";
 import { openaiToCommandCodeRequest } from "open-sse/translator/request/openai-to-commandcode.js";
@@ -87,9 +87,28 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const provider = normalizeProviderId(body.provider);
-    const { apiKey, providerSpecificData } = body;
+    const { apiKey: suppliedApiKey, connectionId, providerSpecificData } = body;
 
     const isNoAuth = AI_PROVIDERS[provider]?.noAuth === true;
+    let apiKey = typeof suppliedApiKey === "string" ? suppliedApiKey.trim() : "";
+    // Edit Connection intentionally omits the secret when the user leaves the
+    // API-key field blank. Resolve it server-side only for the exact matching
+    // API-key connection; OAuth credentials must never be used for this probe.
+    if (!apiKey && connectionId) {
+      const existing = await getProviderConnectionById(connectionId);
+      const existingProvider = existing ? normalizeProviderId(existing.provider) : null;
+      if (
+        !existing ||
+        existingProvider !== provider ||
+        existing.authType !== "apikey" ||
+        typeof existing.apiKey !== "string" ||
+        !existing.apiKey.trim()
+      ) {
+        return NextResponse.json({ error: "A matching API-key connection is required" }, { status: 400 });
+      }
+      apiKey = existing.apiKey.trim();
+    }
+
     if (!provider || (!apiKey && provider !== "ollama-local" && !isNoAuth)) {
       return NextResponse.json({ error: "Provider and API key required" }, { status: 400 });
     }
@@ -97,29 +116,21 @@ export async function POST(request) {
     let isValid = false;
     let error = null;
 
-    // Relay override (claude/codex pointed at a third-party host): probe the
-    // relay's own /models instead of the official endpoint. Doing this first
-    // matters for more than correctness — the fall-through branches would send
-    // the relay key to api.anthropic.com / chatgpt.com.
+    // Relay override (claude/codex pointed at a third-party host): perform a
+    // real inference probe before any official-provider fall-through.
     const relayBaseUrl = resolveRelayBaseUrl(provider, providerSpecificData);
-    if (relayBaseUrl) {
-      try {
-        const res = await fetch(`${relayBaseUrl}/models`, {
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${apiKey}`,
-            "x-api-key": apiKey,
-            "anthropic-version": ANTHROPIC_API_VERSION,
-          },
-          signal: AbortSignal.timeout(8000),
-        });
-        // Relays are inconsistent about exposing /models, so only an auth
-        // rejection is treated as a bad key — a 404 still means the key passed.
-        isValid = res.status !== 401 && res.status !== 403;
-        return NextResponse.json({ valid: isValid, error: isValid ? null : "Invalid API key" });
-      } catch (err) {
-        return NextResponse.json({ valid: false, error: `Relay unreachable: ${err.message}` });
-      }
+    const officialProbeBaseUrl = supportsRelayBaseUrl(provider)
+      ? normalizeRelayBaseUrl(provider, PROVIDERS[provider]?.baseUrl)
+      : null;
+    if (relayBaseUrl || officialProbeBaseUrl) {
+      const result = await probeRelayConnection({
+        provider,
+        baseUrl: relayBaseUrl || officialProbeBaseUrl,
+        apiKey,
+        preferredModel: body.defaultModel || getDefaultModel(provider),
+        signal: AbortSignal.timeout(15000),
+      });
+      return NextResponse.json({ valid: result.valid, error: result.error });
     }
 
     // Validate with each provider
