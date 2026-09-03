@@ -83,3 +83,5 @@ graphify-out/*
 .script/
 .codegraph/
 .PR/
+# Kiro local workspace state
+.kiro/
