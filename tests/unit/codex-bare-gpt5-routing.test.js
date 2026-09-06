@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { getModelInfoCore, parseModel } from "../../open-sse/services/model.js";
 
-describe("bare gpt-5 model routing", () => {
+describe("bare Codex GPT model routing", () => {
   it.each([
     "gpt-5",
     "gpt-5-mini",
@@ -13,6 +13,7 @@ describe("bare gpt-5 model routing", () => {
     "gpt-5.6-terra",
     "gpt-5.6-luna",
     "gpt-5.7-preview",
+    "gpt-6-astra",
   ])("routes bare %s to Codex", async (model) => {
     await expect(getModelInfoCore(model, {})).resolves.toEqual({
       provider: "codex",
@@ -41,6 +42,10 @@ describe("bare gpt-5 model routing", () => {
     await expect(getModelInfoCore("gpt-50", {})).resolves.toEqual({
       provider: "openai",
       model: "gpt-50",
+    });
+    await expect(getModelInfoCore("gpt-60", {})).resolves.toEqual({
+      provider: "openai",
+      model: "gpt-60",
     });
   });
 });

@@ -126,7 +126,7 @@ export async function getModelInfoCore(modelStr, aliasesOrGetter) {
 const MODEL_PREFIX_PROVIDERS = [
   [/^claude-/, "anthropic"],
   [/^gemini-/, "gemini"],
-  [/^gpt-5\b/, "codex"],
+  [/^gpt-(?:5|6)\b/, "codex"],
   [/^gpt-/, "openai"],
   [/^o[134]/, "openai"],
   [/^deepseek-/, "openrouter"],
