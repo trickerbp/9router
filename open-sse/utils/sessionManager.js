@@ -147,8 +147,7 @@ function extractClientSessionId(headers, body, scope = "") {
         const v = headerValue(headers, key);
         if (v) return v;
     }
-    const requestId = scope === "kiro" ? null : headerValue(headers, "x-client-request-id");
-    if (requestId) return requestId;
+    // Request IDs identify attempts, not conversations. Never use them for caching.
     const fromBody =
         normalizeSessionId(body?.prompt_cache_key) ||
         normalizeSessionId(body?.session_id) ||

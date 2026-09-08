@@ -1,3 +1,5 @@
+import { abortableDelay, checkRequestBudget } from "../utils/requestBudget.js";
+import { RESPONSES_ROUTING } from "../config/responsesRouting.js";
 import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { shouldRefreshCredentials } from "../services/oauthCredentialManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
@@ -106,8 +108,10 @@ export class BaseExecutor {
     return { status: response.status, message: bodyText || `HTTP ${response.status}` };
   }
 
-  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null }) {
+  async execute({ model, body, stream, credentials, signal, log, proxyOptions = null, retryBudget = null }) {
     const fallbackCount = this.getFallbackCount();
+    const requestBody = structuredClone(body);
+    if (retryBudget?.signal) signal = signal ? AbortSignal.any([signal, retryBudget.signal]) : retryBudget.signal;
     let lastError = null;
     let lastStatus = 0;
     const retryAttemptsByUrl = {};
@@ -118,7 +122,9 @@ export class BaseExecutor {
     // Schedule retry via retryConfig[statusKey]. Returns true when caller should `urlIndex--; continue`
     // response (optional) lets a subclass hook compute a dynamic delay (e.g. antigravity Retry-After).
     const tryRetry = async (urlIndex, statusKey, reason, response = null) => {
-      const { attempts, delayMs } = resolveRetryEntry(retryConfig[statusKey]);
+      const entry = resolveRetryEntry(retryConfig[statusKey]);
+      const attempts = retryBudget ? Math.min(entry.attempts, RESPONSES_ROUTING.retriesPerAccount) : entry.attempts;
+      const { delayMs } = entry;
       if (attempts <= 0 || retryAttemptsByUrl[urlIndex] >= attempts) return false;
       // Hook: subclass may derive delay from the response (headers/body). null → skip retry, use fallback.
       let waitMs = delayMs;
@@ -129,13 +135,17 @@ export class BaseExecutor {
       }
       retryAttemptsByUrl[urlIndex]++;
       log?.debug?.("RETRY", `${reason} retry ${retryAttemptsByUrl[urlIndex]}/${attempts} after ${waitMs / 1000}s`);
-      await new Promise(resolve => setTimeout(resolve, waitMs));
+      if (response?.body) await response.body.cancel().catch(() => {});
+      checkRequestBudget(retryBudget);
+      await abortableDelay(waitMs, signal);
       return true;
     };
 
     for (let urlIndex = 0; urlIndex < fallbackCount; urlIndex++) {
+      signal?.throwIfAborted();
+      checkRequestBudget(retryBudget);
       const url = this.buildUrl(model, stream, urlIndex, credentials);
-      const transformedBody = this.transformRequest(model, body, stream, credentials);
+      const transformedBody = this.transformRequest(model, structuredClone(requestBody), stream, credentials);
       const headers = this.buildHeaders(credentials, stream, url, model);
 
       if (!retryAttemptsByUrl[urlIndex]) retryAttemptsByUrl[urlIndex] = 0;
@@ -150,6 +160,7 @@ export class BaseExecutor {
         const bodyStr = JSON.stringify(transformedBody);
         const fetchT0 = Date.now();
         dbg("FETCH", `${this.provider.toUpperCase()} → ${url} | body=${bodyStr.length}B | connectTimeout=${timeoutMs}ms`);
+        checkRequestBudget(retryBudget, true);
         const response = await proxyAwareFetch(url, {
           method: "POST",
           headers,
@@ -166,6 +177,7 @@ export class BaseExecutor {
         if (this.shouldRetry(response.status, urlIndex)) {
           log?.debug?.("RETRY", `${response.status} on ${url}, trying fallback ${urlIndex + 1}`);
           lastStatus = response.status;
+          await response.body?.cancel().catch(() => {});
           continue;
         }
 
@@ -176,7 +188,7 @@ export class BaseExecutor {
         const isConnectTimeout = connectCtrl.signal.aborted && error.name === "AbortError";
         dbg("FETCH", `${this.provider.toUpperCase()} ✖ ${error.name}: ${error.message}${isConnectTimeout ? " (connect timeout)" : ""}`);
         // Connect timeout is internal — convert to retryable network error, don't propagate AbortError
-        if (error.name === "AbortError" && !isConnectTimeout) throw error;
+        if (signal?.aborted || error.status || (error.name === "AbortError" && !isConnectTimeout)) throw error;
 
         // Map network/fetch exceptions to 502 retry config
         if (await tryRetry(urlIndex, HTTP_STATUS.BAD_GATEWAY, `network "${error.message}"`)) { urlIndex--; continue; }

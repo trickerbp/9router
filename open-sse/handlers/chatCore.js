@@ -1,3 +1,8 @@
+import { responsesContinuityError } from "../utils/responsesContinuity.js";
+import { normalizeGptRequest, gptEndpointError } from "../utils/gptRequest.js";
+import { getErrorEnvelope, parseProviderError, providerErrorResponse } from "../utils/upstreamError.js";
+import { peekResponsesError } from "../utils/responsesErrors.js";
+import { responsesJsonToSse } from "../utils/responsesJson.js";
 import { detectFormat, getTargetFormat, resolveTransport } from "../services/provider.js";
 import { translateRequest } from "../translator/index.js";
 import { applyThinking, extractThinking, stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
@@ -14,7 +19,7 @@ import { handleBypassRequest } from "../utils/bypassHandler.js";
 import { trackPendingRequest, appendRequestLog, saveRequestDetail } from "@/lib/usageDb.js";
 import { getExecutor } from "../executors/index.js";
 import { supportsGrokCliReasoningEffort } from "../config/grokCli.js";
-import { buildRequestDetail, extractRequestConfig } from "./chatCore/requestDetail.js";
+import { buildRequestDetail, extractRequestConfig, extractUsageFromResponse, saveUsageStats } from "./chatCore/requestDetail.js";
 import { handleForcedSSEToJson } from "./chatCore/sseToJsonHandler.js";
 import { handleNonStreamingResponse } from "./chatCore/nonStreamingHandler.js";
 import { handleStreamingResponse, buildOnStreamComplete } from "./chatCore/streamingHandler.js";
@@ -58,7 +63,8 @@ export function stripContinuityFields(body) {
   return body;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, retryBudget = null, requestSignal = null, onRequestFailure }) {
+  body = structuredClone(body);
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -98,6 +104,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // back to its declared Claude target).
   const targetFormat = useTransport?.format || modelTargetFormat || getTargetFormat(provider, credentials);
   if (useTransport && credentials) credentials.runtimeTransport = useTransport;
+  const continuityError = responsesContinuityError(body, sourceFormat, targetFormat) || gptEndpointError(body, model, targetFormat);
+  if (continuityError) return createErrorResult(400, continuityError);
   const stripList = getModelStrip(alias, model);
   const upstreamModel = getModelUpstreamId(alias, model);
 
@@ -110,14 +118,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       body = { ...body, thinking: { type: "enabled", budget_tokens: 10000 } };
     } else if (mode === "off" && !body.thinking) {
       body = { ...body, thinking: { type: "disabled" } };
-    } else if (!body.reasoning_effort) {
+    } else if (!body.reasoning_effort && !body.reasoning?.effort) {
       body = { ...body, reasoning_effort: mode };
     }
   }
 
   const clientRequestedStreaming = body.stream === true || sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI;
   const providerRequiresStreaming = PROVIDERS[provider]?.forceStream === true;
-  let stream = providerRequiresStreaming ? true : (body.stream !== false);
+  let stream = body._compact ? false : providerRequiresStreaming ? true : (body.stream !== false);
 
   // Image generation models require non-streaming (Google v1internal:generateContent)
   const modelType = getModelType(alias, model);
@@ -158,6 +166,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   if (!passthrough) {
     const caps = getCapabilitiesForModel(provider, model);
     if (stripUnsupportedModalities(body, sourceFormat, caps)) {
+      if (sourceFormat === FORMATS.OPENAI_RESPONSES) return createErrorResult(400, "continuity_not_supported: the selected model cannot read media in this conversation");
       log?.debug?.("MODALITY", `stripped unsupported media for ${provider}/${model}`);
     }
     // Convert remote image URLs to base64 for targets that can't fetch URLs.
@@ -307,6 +316,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // system/tools/messages, and a stale anchor costs a full prefix rewrite.
   if (passthrough && clientTool === "claude") anchorClaudeCache(translatedBody);
 
+  normalizeGptRequest(translatedBody, upstreamModel, targetFormat);
   const executor = getExecutor(provider);
   trackPendingRequest(model, provider, connectionId, true);
   appendRequestLog({ model, provider, connectionId, status: "PENDING" }).catch(() => { });
@@ -369,11 +379,17 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       credentials,
       providerSessionId: sessionSeed,
       clientTool,
-      signal: streamController.signal,
+      signal: requestSignal ? AbortSignal.any([streamController.signal, requestSignal]) : streamController.signal,
+      retryBudget,
       log,
       proxyOptions,
     });
     providerResponse = result.response;
+    if (provider !== "codex" && targetFormat === FORMATS.OPENAI_RESPONSES) {
+      const peek = await peekResponsesError(providerResponse, retryBudget?.signal || requestSignal);
+      if (peek.matched) providerResponse = providerErrorResponse(peek);
+      else if (peek.replacementBody) providerResponse = new Response(peek.replacementBody, { status: providerResponse.status, headers: providerResponse.headers });
+    }
     providerUrl = result.url;
     providerHeaders = result.headers;
     finalBody = result.transformedBody;
@@ -393,7 +409,9 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       status: "error"
     })).catch(() => { });
 
-    if (error.name === "AbortError") {
+    if (error.status) return createErrorResult(error.status, error.message);
+    if (retryBudget?.signal?.aborted && !requestSignal?.aborted) return createErrorResult(504, "routing_deadline_exceeded: upstream request deadline reached");
+    if (requestSignal?.aborted || retryBudget?.signal?.aborted || error.name === "AbortError") {
       streamController.handleError(error);
       return createErrorResult(499, "Request aborted");
     }
@@ -405,7 +423,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   }
 
   // Handle 401/403 - try token refresh (skip for noAuth providers)
-  if (!executor.noAuth && (providerResponse.status === HTTP_STATUS.UNAUTHORIZED || providerResponse.status === HTTP_STATUS.FORBIDDEN)) {
+  if (!executor.noAuth && !credentials.apiKey && (providerResponse.status === HTTP_STATUS.UNAUTHORIZED || providerResponse.status === HTTP_STATUS.FORBIDDEN)) {
     try {
       // Mutate credentials after each successful refresh: rotating refresh_token
       // providers (xAI/grok-cli) issue a new RT on every refresh; without this,
@@ -426,6 +444,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
           try { await onCredentialsRefreshed(newCredentials); } catch (e) { log?.warn?.("TOKEN", `onCredentialsRefreshed failed: ${e.message}`); }
         }
         try {
+          await providerResponse.body?.cancel().catch(() => {});
           const retryResult = await executor.execute({
             model,
             body: translatedBody,
@@ -433,16 +452,28 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
             credentials,
             providerSessionId: sessionSeed,
             clientTool,
-            signal: streamController.signal,
+            signal: requestSignal ? AbortSignal.any([streamController.signal, requestSignal]) : streamController.signal,
+            retryBudget,
             log,
             proxyOptions,
           });
-          if (retryResult.response.ok) {
+          if (retryResult.response) {
             providerResponse = retryResult.response;
+            if (provider !== "codex" && targetFormat === FORMATS.OPENAI_RESPONSES) {
+              const peek = await peekResponsesError(providerResponse, retryBudget?.signal || requestSignal);
+              if (peek.matched) providerResponse = providerErrorResponse(peek);
+              else if (peek.replacementBody) providerResponse = new Response(peek.replacementBody, { status: providerResponse.status, headers: providerResponse.headers });
+            }
             providerUrl = retryResult.url;
+            finalBody = retryResult.transformedBody;
             providerResponseFormat = retryResult.responseFormat || targetFormat;
           }
-        } catch { log?.warn?.("TOKEN", `${provider.toUpperCase()} | retry after refresh failed`); }
+        } catch (error) {
+          if (error.status) return createErrorResult(error.status, error.message);
+          if (requestSignal?.aborted) return createErrorResult(499, "Request aborted");
+          if (retryBudget?.signal?.aborted) return createErrorResult(504, "routing_deadline_exceeded: upstream request deadline reached");
+          return createErrorResult(502, `Retry after token refresh failed: ${error.message}`);
+        }
       } else {
         log?.warn?.("TOKEN", `${provider.toUpperCase()} | refresh failed`);
       }
@@ -454,7 +485,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // Provider returned error
   if (!providerResponse.ok) {
     trackPendingRequest(model, provider, connectionId, false, true);
-    const { statusCode, message, resetsAtMs } = await parseUpstreamError(providerResponse, executor);
+    const { statusCode, message, resetsAtMs, errorDetails } = await parseUpstreamError(providerResponse, executor);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
       provider, model, connectionId,
@@ -473,15 +504,46 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       log.errorLine(reqTag, "✗", `ERROR ${statusCode} · ${provider}/${model} · ${Date.now() - requestStartTime}ms${urlStr}\n    ${errMsg}`);
     }
     reqLogger.logError(new Error(message), finalBody || translatedBody);
-    return createErrorResult(statusCode, errMsg, resetsAtMs);
+    return { ...createErrorResult(statusCode, errMsg, resetsAtMs), errorDetails };
   }
 
-  const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };
+  // Compact is a standalone JSON contract, never a chat-completion or SSE stream.
+  if (body._compact) {
+    const compact = await providerResponse.json().catch(() => null);
+    streamController.handleComplete();
+    trackPendingRequest(model, provider, connectionId, false);
+    const error = getErrorEnvelope(compact);
+    if (error) {
+      const parsed = parseProviderError(200, { error }, providerResponse.headers);
+      return { ...createErrorResult(parsed.status, parsed.message, parsed.resetsAtMs), errorDetails: error };
+    }
+    if (!compact || !Array.isArray(compact.output) || !compact.output.some(item => item.type === "compaction")) {
+      return createErrorResult(502, "Invalid compact response: missing canonical compaction output");
+    }
+    const usage = extractUsageFromResponse(compact);
+    appendRequestLog({ model, provider, connectionId, tokens: usage, status: "200 OK" }).catch(() => {});
+    saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true });
+    if (onRequestSuccess) await onRequestSuccess();
+    return { success: true, response: new Response(JSON.stringify(compact), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }) };
+  }
+
+  if (providerResponseFormat === FORMATS.OPENAI_RESPONSES && providerResponse.headers.get("content-type")?.includes("application/json")) {
+    const value = await providerResponse.json().catch(() => null);
+    if (!value || getErrorEnvelope(value) || value.status !== "completed" || !Array.isArray(value.output)) {
+      trackPendingRequest(model, provider, connectionId, false, true);
+      streamController.handleComplete();
+      const error = parseProviderError(200, getErrorEnvelope(value) ? value : { error: { code: "invalid_response_contract", message: "Expected a completed Responses object from the selected Base URL" } });
+      return { ...createErrorResult(error.status, error.message, error.resetsAtMs), errorDetails: error };
+    }
+    providerResponse = responsesJsonToSse(value);
+  }
+
+  const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, onRequestFailure, pxpipe: pxpipeSummary, reqTag, log };
   const appendLog = (extra) => appendRequestLog({ model, provider, connectionId, ...extra }).catch(() => { });
   const trackDone = () => trackPendingRequest(model, provider, connectionId, false);
 
   // Provider forced streaming but client wants JSON
-  if (!clientRequestedStreaming && providerRequiresStreaming) {
+  if (!clientRequestedStreaming && (providerRequiresStreaming || providerResponseFormat === FORMATS.OPENAI_RESPONSES)) {
     const result = await handleForcedSSEToJson({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, customToolNames, trackDone, appendLog });
     if (result) { streamController.handleComplete(); return result; }
   }

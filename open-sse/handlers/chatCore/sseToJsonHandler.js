@@ -1,3 +1,4 @@
+import { parseProviderError } from "../../utils/upstreamError.js";
 import { convertResponsesStreamToJson } from "../../transformer/streamToJsonConverter.js";
 import { createErrorResult } from "../../utils/error.js";
 import { HTTP_STATUS } from "../../config/runtimeConfig.js";
@@ -200,6 +201,10 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
   if (isCodexResponsesApi) {
     try {
       const jsonResponse = await convertResponsesStreamToJson(providerResponse.body);
+      if (jsonResponse.status !== "completed" || jsonResponse.error) {
+        const parsed = parseProviderError(200, { error: jsonResponse.error || { message: "Upstream response incomplete" } });
+        return { ...createErrorResult(parsed.status, parsed.message, parsed.resetsAtMs), errorDetails: jsonResponse.error };
+      }
       if (onRequestSuccess) await onRequestSuccess();
 
       const usage = jsonResponse.usage || {};

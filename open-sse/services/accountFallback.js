@@ -1,3 +1,5 @@
+import { parseProviderError } from "../utils/upstreamError.js";
+import { RESPONSES_ROUTING } from "../config/responsesRouting.js";
 import { ERROR_RULES, BACKOFF_CONFIG, TRANSIENT_COOLDOWN_MS } from "../config/errorConfig.js";
 
 /**
@@ -21,6 +23,10 @@ export function getQuotaCooldown(backoffLevel = 0) {
  * @returns {{ shouldFallback: boolean, cooldownMs: number, newBackoffLevel?: number }}
  */
 export function checkFallbackError(status, errorText, backoffLevel = 0) {
+  const error = parseProviderError(status, errorText);
+  if (["cancelled", "context", "request"].includes(error.category)) return { shouldFallback: false, cooldownMs: 0 };
+  if (error.category === "quota") return { shouldFallback: true, cooldownMs: error.resetsAtMs ? error.resetsAtMs - Date.now() : RESPONSES_ROUTING.exhaustedCooldownMs };
+  if (status >= 200 && status < 400 && error.category === "unknown") return { shouldFallback: false, cooldownMs: 0 };
   const lowerError = errorText
     ? (typeof errorText === "string" ? errorText : JSON.stringify(errorText)).toLowerCase()
     : "";
@@ -119,9 +125,7 @@ export function getModelLockKey(model) {
  */
 export function isModelLockActive(connection, model) {
   const key = getModelLockKey(model);
-  const expiry = connection[key] || connection[MODEL_LOCK_ALL];
-  if (!expiry) return false;
-  return new Date(expiry).getTime() > Date.now();
+  return [connection[key], connection[MODEL_LOCK_ALL]].some(expiry => expiry && new Date(expiry).getTime() > Date.now());
 }
 
 /**

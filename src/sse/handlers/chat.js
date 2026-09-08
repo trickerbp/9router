@@ -1,3 +1,6 @@
+import { getRoutingBudget, routingSessionKey, preferredSessionConnection, bindSessionConnection } from "../services/responsesRouting.js";
+import { checkRequestBudget } from "open-sse/utils/requestBudget.js";
+import { parseProviderError } from "open-sse/utils/upstreamError.js";
 import "open-sse/index.js";
 
 import {
@@ -259,13 +262,20 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   // Extract userAgent from request
   const userAgent = request?.headers?.get("user-agent") || "";
 
+  const isResponses = clientRawRequest?.endpoint?.includes("/responses") || Array.isArray(body.input);
+  const retryBudget = isResponses ? getRoutingBudget(request) : null;
+  const sessionKey = routingSessionKey(provider, model, clientRawRequest?.headers, body, apiKey);
   // Try with available accounts (fallback on errors)
   const excludeConnectionIds = new Set();
   let lastError = null;
   let lastStatus = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model);
+    if (request?.signal?.aborted) return errorResponse(499, "Request aborted");
+    try { checkRequestBudget(retryBudget); } catch (error) { return errorResponse(error.status || 499, error.message); }
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, {
+      preferredConnectionId: preferredSessionConnection(sessionKey),
+    });
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -283,6 +293,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       return errorResponse(lastStatus || HTTP_STATUS.SERVICE_UNAVAILABLE, lastError || "All accounts unavailable");
     }
 
+    bindSessionConnection(sessionKey, credentials.connectionId);
     // Account selection shown in the unified "▶" line (acc:...)
     const refreshedCredentials = await checkAndRefreshToken(provider, credentials);
 
@@ -300,7 +311,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const chatSettings = await getSettings();
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
     const result = await handleChatCore({
-      body: { ...body, model: `${provider}/${model}` },
+      body: { ...structuredClone(body), model: `${provider}/${model}` },
+      retryBudget,
+      requestSignal: request?.signal,
       modelInfo: { provider, model },
       credentials: refreshedCredentials,
       log,
@@ -334,6 +347,11 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
           testStatus: "active"
         });
       },
+      onRequestFailure: async (error) => {
+        const parsed = parseProviderError(200, { error });
+        // A streamed response cannot be replayed; block the failed connection for the next turn.
+        await markAccountUnavailable(credentials.connectionId, parsed.status, JSON.stringify({ error }), provider, model, parsed.resetsAtMs);
+      },
       onRequestSuccess: async () => {
         await clearAccountError(credentials.connectionId, credentials, model);
         // "Consecutive" strikes: a success clears the breaker for this pair.
@@ -343,14 +361,14 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
     if (result.success) return result.response;
 
-    // Sequential 1-request-1-account for codex/openai: only the selected account is called.
-    // Full conversation context (body.messages / body.input) is replayed verbatim on retry,
-    // so account 2 sees the same history as account 1 (store=false, no previous_response_id).
+    // Every attempt starts from an independent copy of the canonical request.
     const replayMsgs = body?.messages?.length || body?.input?.length || 0;
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;
     let resetsAtMs = result.resetsAtMs;
+    if (request?.signal?.aborted) return errorResponse(499, "Request aborted");
+    if (retryBudget?.signal?.aborted) return errorResponse(504, "routing_deadline_exceeded: upstream request deadline reached");
     if (provider === "antigravity" && (result.status === 409 || result.status === 429)) {
       quotaResetMs = await handleAntigravityQuotaError(
         credentials.connectionId, result.status, model,
@@ -363,7 +381,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Do not persist a modelLock_* for this path.
     const shouldFallback = provider === "antigravity" && quotaResetMs
       ? true
-      : (await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, resetsAtMs)).shouldFallback;
+      : (await markAccountUnavailable(credentials.connectionId, result.status, result.errorDetails ? JSON.stringify({ error: result.errorDetails }) : result.error, provider, model, resetsAtMs)).shouldFallback;
 
     if (shouldFallback) {
       const strictProviders = new Set(["codex", "openai"]);

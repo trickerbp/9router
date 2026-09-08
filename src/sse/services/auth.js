@@ -1,7 +1,8 @@
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
-import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
+import { parseProviderError } from "open-sse/utils/upstreamError.js";
+import { ERROR_RULES } from "open-sse/config/errorConfig.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache } from "./antigravityQuota.js";
 import * as log from "../utils/logger.js";
@@ -135,8 +136,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
 
     const settings = await getSettings();
     // Per-provider strategy overrides global setting.
-    // Hard sequential for codex/openai: 1 request = 1 account in priority order,
-    // acc1 exhausted → acc2, with full context replay. Ignores round-robin.
+    // Codex/OpenAI prefer account priority; a session pin takes precedence.
     const STRICT_SEQUENTIAL_PROVIDERS = new Set(["codex", "openai"]);
     const providerOverride = (settings.providerStrategies || {})[providerId] || {};
     const strategy = STRICT_SEQUENTIAL_PROVIDERS.has(providerId)
@@ -247,8 +247,16 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   const conn = connections.find(c => c.id === connectionId);
   const backoffLevel = conn?.backoffLevel || 0;
 
-  // GitHub premium-request exhaustion is account-wide until the next UTC month.
+  const errorDetails = parseProviderError(status, errorText);
   const githubResetAtMs = githubMonthlyResetMs(status, errorText, provider);
+  // GitHub has a documented monthly-limit message. Other 402s keep its
+  // existing model cooldown instead of assuming the entire account is empty.
+  const githubGenericPayment = resolveProviderId(provider) === "github" && status === 402 && !githubResetAtMs;
+  const policy = githubGenericPayment ? { shouldFallback: true, cooldownMs: ERROR_RULES.find(rule => rule.status === 402).cooldownMs } : checkFallbackError(status, errorText, backoffLevel);
+  if (!policy.shouldFallback) return policy;
+  resetsAtMs = resetsAtMs || errorDetails.resetsAtMs;
+
+  // GitHub premium-request exhaustion is account-wide until the next UTC month.
 
   // Provider-specific precise cooldown (e.g. codex usage_limit_reached resets_at) overrides backoff
   let shouldFallback, cooldownMs, newBackoffLevel;
@@ -258,18 +266,15 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     newBackoffLevel = 0;
   } else if (resetsAtMs && resetsAtMs > Date.now()) {
     shouldFallback = true;
-    // Antigravity quota API provides exact per-model resetAt. Do not truncate it.
-    cooldownMs = resolveProviderId(provider) === "antigravity"
-      ? resetsAtMs - Date.now()
-      : Math.min(resetsAtMs - Date.now(), MAX_RATE_LIMIT_COOLDOWN_MS);
+    cooldownMs = resetsAtMs - Date.now();
     newBackoffLevel = 0;
   } else {
-    ({ shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel));
+    ({ shouldFallback, cooldownMs, newBackoffLevel } = policy);
   }
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
   const reason = typeof errorText === "string" ? errorText.slice(0, 100) : "Provider error";
-  const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
+  const lockUpdate = buildModelLockUpdate(githubResetAtMs || (!githubGenericPayment && errorDetails.scope === "account") ? null : model, cooldownMs);
 
   await updateProviderConnection(connectionId, {
     ...lockUpdate,

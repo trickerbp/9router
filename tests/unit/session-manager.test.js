@@ -138,7 +138,7 @@ describe("resolveSessionId", () => {
     expect(got).toBe("user-123");
   });
 
-  it("keeps x-client-request-id as a session override outside Kiro scope", () => {
+  it("keeps the conversation cache stable when per-request IDs change", () => {
     const got = resolveSessionId({
       headers: { "x-client-request-id": "req-1" },
       body: bodyWithAssistant,
@@ -146,7 +146,14 @@ describe("resolveSessionId", () => {
       scope: "codex",
     });
 
-    expect(got).toBe("req-1");
+    const next = resolveSessionId({
+      headers: { "x-client-request-id": "req-2" },
+      body: bodyWithAssistant,
+      connectionId: "conn1",
+      scope: "codex",
+    });
+    expect(got).not.toBe("req-1");
+    expect(next).toBe(got);
   });
 
 

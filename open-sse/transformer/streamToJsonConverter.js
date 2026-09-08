@@ -12,30 +12,33 @@ function processSSEMessage(msg, state) {
 
   const eventMatch = msg.match(/^event:\s*(.+)$/m);
   const dataMatch = msg.match(/^data:\s*(.+)$/m);
-  if (!eventMatch || !dataMatch) return;
+  if (!dataMatch) return;
 
-  const eventType = eventMatch[1].trim();
+  let eventType = eventMatch?.[1]?.trim();
   const dataStr = dataMatch[1].trim();
   if (dataStr === "[DONE]") return;
 
   let parsed;
   try { parsed = JSON.parse(dataStr); }
   catch { return; }
+  eventType ||= parsed.type;
 
   if (eventType === "response.created") {
     state.responseId = parsed.response?.id || state.responseId;
     state.created = parsed.response?.created_at || state.created;
   } else if (eventType === "response.output_item.done") {
     state.items.set(parsed.output_index ?? 0, parsed.item);
+  } else if (parsed.error || parsed.response?.error || ["failed", "incomplete"].includes(parsed.response?.status) || ["response.failed", "response.incomplete", "error"].includes(eventType)) {
+    state.status = "failed";
+    state.error = parsed.response?.error || parsed.error || { code: "upstream_incomplete", message: "Upstream response did not complete" };
   } else if (eventType === "response.completed" || eventType === "response.done") {
     state.status = "completed";
+    state.responseId = parsed.response?.id || state.responseId;
+    state.model = parsed.response?.model || state.model;
+    if (Array.isArray(parsed.response?.output)) state.output = parsed.response.output;
     if (parsed.response?.usage) {
-      state.usage.input_tokens = parsed.response.usage.input_tokens || 0;
-      state.usage.output_tokens = parsed.response.usage.output_tokens || 0;
-      state.usage.total_tokens = parsed.response.usage.total_tokens || 0;
+      state.usage = structuredClone(parsed.response.usage);
     }
-  } else if (eventType === "response.failed") {
-    state.status = "failed";
   }
 }
 
@@ -69,7 +72,7 @@ export async function convertResponsesStreamToJson(stream) {
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const messages = buffer.split("\n\n");
+      const messages = buffer.split(/\r?\n\r?\n/);
       buffer = messages.pop() || "";
 
       for (const msg of messages) {
@@ -78,6 +81,7 @@ export async function convertResponsesStreamToJson(stream) {
     }
 
     // Flush remaining buffer (last event may not end with \n\n)
+    buffer += decoder.decode();
     if (buffer.trim()) {
       processSSEMessage(buffer, state);
     }
@@ -96,8 +100,10 @@ export async function convertResponsesStreamToJson(stream) {
     id: state.responseId || `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     object: "response",
     created_at: state.created,
-    status: state.status || "completed",
-    output,
+    status: state.status === "in_progress" ? "failed" : state.status,
+    ...(state.model ? { model: state.model } : {}),
+    ...(state.error || state.status === "in_progress" ? { error: state.error || { code: "stream_disconnected", message: "Stream ended before response.completed" } } : {}),
+    output: state.output || output,
     usage: state.usage
   };
 }

@@ -214,6 +214,8 @@ describe("CodexExecutor tool normalization", () => {
         max_output_length: 1000,
         status: "completed",
       },
+      // Unknown item types may be new Responses state; do not silently discard them.
+      { type: "unsupported_codex_item", call_id: "drop" },
     ]);
   });
 
