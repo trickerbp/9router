@@ -14,6 +14,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     name: "",
     priority: 1,
     apiKey: "",
+    defaultModel: "",
   });
   const [azureData, setAzureData] = useState({
     azureEndpoint: "",
@@ -41,6 +42,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         name: connection.name || "",
         priority: connection.priority || 1,
         apiKey: "",
+        defaultModel: connection.defaultModel || "",
       });
       // Load Azure-specific data if present
       if (connection.provider === "azure" && connection.providerSpecificData) {
@@ -81,6 +83,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const providerRegions = connection ? (AI_PROVIDERS?.[connection.provider]?.regions || null) : null;
   // Relay Base URL override — API-key connections on claude/codex only.
   const isRelayCapable = !isOAuth && supportsRelayBaseUrl(connection?.provider);
+  const requiresModel = isCompatible || isRelayCapable;
   const relayPath = RELAY_PROVIDER_PATHS[connection?.provider] || "";
   const normalizedRelayBaseUrl = isRelayCapable
     ? (normalizeRelayBaseUrl(connection.provider, relayBaseUrl) || "")
@@ -88,6 +91,15 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const hasRelayBaseUrlChanged = () => isRelayCapable && normalizedRelayBaseUrl !== (
     normalizeRelayBaseUrl(connection.provider, initialRelayBaseUrlRef.current) || ""
   );
+  const selectedModel = formData.defaultModel.trim();
+  const hasDefaultModelChanged = () => requiresModel && selectedModel !== (connection.defaultModel || "").trim();
+
+  const showModelRequiredError = () => {
+    const error = "Enter the model to check and save this connection.";
+    setValidationResult("failed");
+    setValidationError(error);
+    return { valid: false, error };
+  };
 
   // Build providerSpecificData for region-aware providers
   const buildRegionSpecificData = () => {
@@ -99,9 +111,9 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     const payload = { provider: connection.provider };
     const enteredApiKey = formData.apiKey.trim();
     if (enteredApiKey) payload.apiKey = enteredApiKey;
-    else if (isRelayCapable) payload.connectionId = connection.id;
-    if (typeof connection.defaultModel === "string" && connection.defaultModel.trim()) {
-      payload.defaultModel = connection.defaultModel.trim();
+    else if (!isOAuth) payload.connectionId = connection.id;
+    if (requiresModel) {
+      payload.defaultModel = selectedModel;
     }
 
     let specificData;
@@ -114,6 +126,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   };
 
   const validateCurrentSettings = async () => {
+    if (requiresModel && !selectedModel) return showModelRequiredError();
     setValidating(true);
     setValidationResult(null);
     setValidationError("");
@@ -141,12 +154,16 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
 
   const handleTest = async () => {
     if (!connection?.provider) return;
+    if (requiresModel && !selectedModel) {
+      showModelRequiredError();
+      return;
+    }
     setTesting(true);
     setTestResult(null);
     try {
       // Unsaved relay settings (including a blank key or changed Base URL) are
       // checked through the same server-side inference probe used before save.
-      if (isRelayCapable && (formData.apiKey.trim() || hasRelayBaseUrlChanged())) {
+      if (isRelayCapable && (formData.apiKey.trim() || hasRelayBaseUrlChanged() || hasDefaultModelChanged())) {
         const result = await validateCurrentSettings();
         setTestResult(result.valid ? "success" : "failed");
         return;
@@ -162,12 +179,16 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   };
 
   const handleValidate = async () => {
-    if (!connection?.provider || (!formData.apiKey.trim() && !isRelayCapable)) return;
+    if (!connection?.provider || (!formData.apiKey.trim() && isOAuth)) return;
     await validateCurrentSettings();
   };
 
   const handleSubmit = async () => {
     if (!connection) return;
+    if (requiresModel && !selectedModel) {
+      showModelRequiredError();
+      return;
+    }
     setSaving(true);
     try {
       const updates = {
@@ -175,7 +196,11 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         priority: formData.priority,
       };
       const enteredApiKey = formData.apiKey.trim();
-      const needsValidation = !isOAuth && (Boolean(enteredApiKey) || (isRelayCapable && hasRelayBaseUrlChanged()));
+      const needsValidation = !isOAuth && (
+        Boolean(enteredApiKey) ||
+        (isRelayCapable && hasRelayBaseUrlChanged()) ||
+        hasDefaultModelChanged()
+      );
       if (needsValidation) {
         const alreadyValidated =
           validationResult === "success" &&
@@ -190,6 +215,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         updates.lastError = null;
         updates.lastErrorAt = null;
       }
+      if (requiresModel) updates.defaultModel = selectedModel;
       
       // Add Azure-specific data if this is an Azure connection
       if (isAzure) {
@@ -263,7 +289,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
                 className="flex-1"
               />
               <div className="pt-6">
-                <Button onClick={handleValidate} disabled={(!formData.apiKey.trim() && !isRelayCapable) || validating || saving} variant="secondary">
+                <Button onClick={handleValidate} disabled={(!formData.apiKey.trim() && isOAuth) || validating || saving || (requiresModel && !selectedModel)} variant="secondary">
                   {validating ? "Checking..." : "Check"}
                 </Button>
               </div>
@@ -339,9 +365,24 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
           </>
         )}
 
+        {requiresModel && (
+          <Input
+            label="Model"
+            value={formData.defaultModel}
+            onChange={(e) => {
+              setFormData({ ...formData, defaultModel: e.target.value });
+              setValidationResult(null);
+              setValidationError("");
+              setTestResult(null);
+            }}
+            placeholder={connection.provider === "claude" ? "claude-sonnet-4-6" : "gpt-5.2-codex"}
+            hint="Used by Check and saved as this connection's default model."
+          />
+        )}
+
         {isRelayCapable && (
           <div className="flex items-center gap-3">
-            <Button onClick={handleTest} variant="secondary" disabled={testing || saving}>
+            <Button onClick={handleTest} variant="secondary" disabled={testing || saving || !selectedModel}>
               {testing ? "Testing..." : formData.apiKey ? "Test New Settings" : "Test Saved Connection"}
             </Button>
             {testResult && (

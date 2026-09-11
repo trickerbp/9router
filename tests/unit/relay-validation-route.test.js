@@ -105,6 +105,30 @@ describe("relay API-key validation route", () => {
     expect(global.fetch.mock.calls[0][0]).toBe("https://new.example/v1/messages");
   });
 
+  it("uses the model selected in Edit Connection instead of a registry default", async () => {
+    const connection = await createProviderConnection({
+      provider: "claude",
+      authType: "apikey",
+      name: "ZenAPI",
+      apiKey: "sk-stored",
+      defaultModel: "old-model",
+      providerSpecificData: { baseUrl: "https://relay.test/v1" },
+      isActive: true,
+    });
+    global.fetch.mockResolvedValue(new Response("{}", { status: 200 }));
+
+    const response = await POST(request({
+      provider: "claude",
+      connectionId: connection.id,
+      defaultModel: "claude-selected-for-test",
+      providerSpecificData: { baseUrl: "https://relay.test/v1" },
+    }));
+
+    expect(await response.json()).toEqual({ valid: true, error: null });
+    const [, options] = global.fetch.mock.calls[0];
+    expect(JSON.parse(options.body).model).toBe("claude-selected-for-test");
+  });
+
   it("validates a Claude key against the official endpoint when the relay is cleared", async () => {
     global.fetch.mockResolvedValue(new Response("{}", { status: 200 }));
     const response = await POST(request({
