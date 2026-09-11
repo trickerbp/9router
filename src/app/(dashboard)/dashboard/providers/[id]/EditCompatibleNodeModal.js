@@ -61,7 +61,8 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           baseUrl: formData.baseUrl,
           apiKey: checkKey,
           type: isAnthropic ? "anthropic-compatible" : "openai-compatible",
-          modelId: checkModelId.trim() || undefined
+          ...(!isAnthropic ? { apiType: formData.apiType } : {}),
+          modelId: checkModelId.trim(),
         }),
       });
       const data = await res.json();
@@ -116,17 +117,17 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
             className="flex-1"
           />
           <div className="pt-6">
-            <Button onClick={handleValidate} disabled={!checkKey || validating || !formData.baseUrl.trim()} variant="secondary">
+            <Button onClick={handleValidate} disabled={!checkKey || !checkModelId.trim() || validating || !formData.baseUrl.trim()} variant="secondary">
               {validating ? "Checking..." : "Check"}
             </Button>
           </div>
         </div>
         <Input
-          label="Model ID (optional)"
+          label="Model ID (for Check)"
           value={checkModelId}
           onChange={(e) => setCheckModelId(e.target.value)}
           placeholder="e.g. my-model-id"
-          hint="If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."
+          hint="Check sends an inference request to this exact model."
         />
         {validationResult && (
           <Badge variant={validationResult === "success" ? "success" : "error"}>

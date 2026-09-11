@@ -140,14 +140,24 @@ export async function POST(request) {
         if (!node) {
           return NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
         }
-        const modelsUrl = `${node.baseUrl?.replace(/\/$/, "")}/models`;
-        const res = await fetch(modelsUrl, {
-          headers: { "Authorization": `Bearer ${apiKey}` },
+        const model = typeof body.defaultModel === "string" ? body.defaultModel.trim() : "";
+        if (!model) {
+          return NextResponse.json({ error: "Model is required to check this connection" }, { status: 400 });
+        }
+        const baseUrl = node.baseUrl?.replace(/\/$/, "");
+        const usesResponsesApi = node.apiType === "responses";
+        const res = await fetch(`${baseUrl}/${usesResponsesApi ? "responses" : "chat/completions"}`, {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify(usesResponsesApi
+            ? { model, input: "ping", max_output_tokens: 1 }
+            : { model, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }
+          ),
         });
         isValid = res.ok;
         return NextResponse.json({
           valid: isValid,
-          error: isValid ? null : "Invalid API key",
+          error: isValid ? null : `Compatible inference returned HTTP ${res.status}`,
         });
       }
 
@@ -193,8 +203,11 @@ export async function POST(request) {
           normalizedBase = normalizedBase.slice(0, -9); // remove /messages
         }
 
-        const messagesUrl = `${normalizedBase}/v1/messages`;
-        const model = node.defaultModel || "claude-3-haiku-20240307";
+        const model = typeof body.defaultModel === "string" ? body.defaultModel.trim() : "";
+        if (!model) {
+          return NextResponse.json({ error: "Model is required to check this connection" }, { status: 400 });
+        }
+        const messagesUrl = `${normalizedBase}/messages`;
 
         const res = await fetch(messagesUrl, {
           method: "POST",
@@ -211,11 +224,10 @@ export async function POST(request) {
           }),
         });
 
-        // 400/529 still confirms key accepted; only 401/403 = bad key
-        isValid = res.status !== 401 && res.status !== 403;
+        isValid = res.ok;
         return NextResponse.json({
           valid: isValid,
-          error: isValid ? null : "Invalid API key",
+          error: isValid ? null : `Compatible inference returned HTTP ${res.status}`,
         });
       }
 

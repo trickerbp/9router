@@ -494,11 +494,19 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
   if (isOpenAICompatibleProvider(connection.provider)) {
     const modelsBase = connection.providerSpecificData?.baseUrl;
     if (!modelsBase) return { valid: false, error: "Missing base URL" };
+    const model = typeof connection.defaultModel === "string" ? connection.defaultModel.trim() : "";
+    if (!model) return { valid: false, error: "Missing model selection" };
     try {
-      const res = await fetchWithConnectionProxy(`${modelsBase.replace(/\/$/, "")}/models`, {
-        headers: { "Authorization": `Bearer ${connection.apiKey}` },
+      const usesResponsesApi = connection.providerSpecificData?.apiType === "responses";
+      const res = await fetchWithConnectionProxy(`${modelsBase.replace(/\/$/, "")}/${usesResponsesApi ? "responses" : "chat/completions"}`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${connection.apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(usesResponsesApi
+          ? { model, input: "ping", max_output_tokens: 1 }
+          : { model, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }
+        ),
       }, effectiveProxy);
-      return { valid: res.ok, error: res.ok ? null : "Invalid API key or base URL" };
+      return { valid: res.ok, error: res.ok ? null : `Compatible inference returned HTTP ${res.status}` };
     } catch (err) {
       return { valid: false, error: err.message };
     }
@@ -510,8 +518,9 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
     try {
       modelsBase = modelsBase.replace(/\/$/, "");
       if (modelsBase.endsWith("/messages")) modelsBase = modelsBase.slice(0, -9);
-      const messagesUrl = `${modelsBase}/v1/messages`;
-      const model = connection.defaultModel || "claude-3-haiku-20240307";
+      const messagesUrl = `${modelsBase}/messages`;
+      const model = typeof connection.defaultModel === "string" ? connection.defaultModel.trim() : "";
+      if (!model) return { valid: false, error: "Missing model selection" };
       const res = await fetchWithConnectionProxy(messagesUrl, {
         method: "POST",
         headers: {
@@ -526,9 +535,8 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
           messages: [{ role: "user", content: "test" }],
         }),
       }, effectiveProxy);
-      // 400/529 still confirms key accepted; only 401/403 = bad key
-      const valid = res.status !== 401 && res.status !== 403;
-      return { valid, error: valid ? null : "Invalid API key or base URL" };
+      const valid = res.ok;
+      return { valid, error: valid ? null : `Compatible inference returned HTTP ${res.status}` };
     } catch (err) {
       return { valid: false, error: err.message };
     }

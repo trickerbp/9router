@@ -41,28 +41,24 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
     prefix: "",
     ...(config.hasApiType ? { apiType: "chat" } : {}),
     baseUrl: config.defaultBaseUrl,
+    apiKey: "",
+    modelId: "",
   });
 
   const [formData, setFormData] = useState(initialFormData);
   const [submitting, setSubmitting] = useState(false);
-  const [checkKey, setCheckKey] = useState("");
-  const [checkModelId, setCheckModelId] = useState("");
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
 
-  // openai: reset baseUrl when apiType changes; anthropic: reset checks when opened
+  // Reset the form only when the modal opens; changing API type must not erase a custom URL.
   useEffect(() => {
-    if (config.hasApiType) {
-      setFormData((prev) => ({ ...prev, baseUrl: config.defaultBaseUrl }));
-    } else if (isOpen) {
-      setValidationResult(null);
-      setCheckKey("");
-      setCheckModelId("");
-    }
-  }, [config.hasApiType ? formData.apiType : isOpen]);
+    if (!isOpen) return;
+    setFormData(initialFormData());
+    setValidationResult(null);
+  }, [isOpen, variant]);
 
   const handleSubmit = async () => {
-    if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
+    if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim() || !formData.apiKey.trim() || !formData.modelId.trim()) return;
     setSubmitting(true);
     try {
       const res = await fetch("/api/provider-nodes", {
@@ -73,6 +69,8 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           prefix: formData.prefix,
           ...(config.hasApiType ? { apiType: formData.apiType } : {}),
           baseUrl: formData.baseUrl,
+          apiKey: formData.apiKey,
+          modelId: formData.modelId,
           type: config.type,
         }),
       });
@@ -80,7 +78,6 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
       if (res.ok) {
         onCreated(data.node);
         setFormData(initialFormData());
-        setCheckKey("");
         setValidationResult(null);
       }
     } catch (error) {
@@ -98,9 +95,10 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           baseUrl: formData.baseUrl,
-          apiKey: checkKey,
+          apiKey: formData.apiKey,
           type: config.type,
-          modelId: checkModelId.trim() || undefined,
+          ...(config.hasApiType ? { apiType: formData.apiType } : {}),
+          modelId: formData.modelId.trim(),
         }),
       });
       const data = await res.json();
@@ -119,7 +117,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
       return (
         <>
           <Badge variant="success">Valid</Badge>
-          {method === "chat" && (
+          {method && (
             <span className="text-sm text-text-muted">(via inference test)</span>
           )}
         </>
@@ -166,22 +164,29 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           hint={config.baseUrlHint}
         />
         <Input
-          label="API Key (for Check)"
+          label="API Key"
           type="password"
-          value={checkKey}
-          onChange={(e) => setCheckKey(e.target.value)}
+          value={formData.apiKey}
+          onChange={(e) => {
+            setFormData({ ...formData, apiKey: e.target.value });
+            setValidationResult(null);
+          }}
+          hint="Saved as this provider's first connection."
         />
         <Input
-          label="Model ID (optional)"
-          value={checkModelId}
-          onChange={(e) => setCheckModelId(e.target.value)}
+          label="Model ID"
+          value={formData.modelId}
+          onChange={(e) => {
+            setFormData({ ...formData, modelId: e.target.value });
+            setValidationResult(null);
+          }}
           placeholder={config.modelIdPlaceholder}
-          hint="If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."
+          hint="The selected model is used for Check and saved as the connection default."
         />
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <Button
             onClick={handleValidate}
-            disabled={!checkKey || validating || !formData.baseUrl.trim()}
+            disabled={!formData.apiKey.trim() || !formData.modelId.trim() || validating || !formData.baseUrl.trim()}
             variant="secondary"
             className="w-full sm:w-auto"
           >
@@ -197,10 +202,12 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
               !formData.name.trim() ||
               !formData.prefix.trim() ||
               !formData.baseUrl.trim() ||
+              !formData.apiKey.trim() ||
+              !formData.modelId.trim() ||
               submitting
             }
           >
-            {submitting ? "Creating..." : "Create"}
+            {submitting ? "Saving..." : "Save"}
           </Button>
           <Button onClick={onClose} variant="ghost" fullWidth>
             Cancel

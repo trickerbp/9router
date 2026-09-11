@@ -34,32 +34,29 @@ const getErrorMessage = (error) => {
   return "Network connection failed - check URL and network connectivity";
 };
 
-// Get status-specific error message for /models endpoint
-const getModelsErrorMessage = (status) => {
-  if (status === 401 || status === 403) return "API key unauthorized";
-  if (status === 404) return "/models endpoint not found - try chat validation with model ID";
-  if (status >= 500) return "Server error - try again later";
-  return `Unexpected response (${status})`;
-};
-
-// Get status-specific error message for /chat/completions endpoint
-const getChatErrorMessage = (status) => {
+const getInferenceErrorMessage = (status, endpoint) => {
   if (status === 401 || status === 403) return "API key unauthorized";
   if (status === 400) return "Invalid model or bad request";
-  if (status === 404) return "Chat endpoint not found";
+  if (status === 404) return `${endpoint} endpoint not found`;
   if (status >= 500) return "Server error - try again later";
-  return `Chat request failed (${status})`;
+  return `Inference request failed (${status})`;
 };
 
 // POST /api/provider-nodes/validate - Validate API key against base URL
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { baseUrl, apiKey, type, modelId } = body;
+    const { baseUrl, apiKey, type, apiType, modelId } = body;
 
     if (!baseUrl || !apiKey) {
       return NextResponse.json({ error: "Base URL and API key required" }, { status: 400 });
     }
+
+    if (!modelId?.trim()) {
+      return NextResponse.json({ error: "Model ID is required to check this provider" }, { status: 400 });
+    }
+
+    const selectedModelId = modelId.trim();
 
     // Validate URL format
     if (!isValidUrl(baseUrl)) {
@@ -78,16 +75,13 @@ export async function POST(request) {
     // Custom Embedding Validation - test POST /embeddings directly
     if (type === "custom-embedding") {
       const normalizedBase = baseUrl.trim().replace(/\/$/, "");
-      if (!modelId?.trim()) {
-        return NextResponse.json({ valid: false, error: "Model ID required for embedding validation" });
-      }
       const embedRes = await fetchWithTimeout(`${normalizedBase}/embeddings`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ model: modelId.trim(), input: "ping" })
+        body: JSON.stringify({ model: selectedModelId, input: "ping" })
       });
       if (embedRes.ok) {
         const data = await embedRes.json().catch(() => null);
@@ -112,90 +106,56 @@ export async function POST(request) {
         normalizedBase = normalizedBase.slice(0, -9);
       }
 
-      const modelsUrl = `${normalizedBase}/models`;
-      const res = await fetchWithTimeout(modelsUrl, {
-        method: "GET",
+      const messagesRes = await fetchWithTimeout(`${normalizedBase}/messages`, {
+        method: "POST",
         headers: {
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
-          "Authorization": `Bearer ${apiKey}`
-        }
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: selectedModelId,
+          max_tokens: 1,
+          messages: [{ role: "user", content: "ping" }],
+        })
       });
 
-      if (res.ok) return NextResponse.json({ valid: true });
-
-      // Auth errors - no point trying chat fallback
-      if (res.status === 401 || res.status === 403) {
-        return NextResponse.json({ valid: false, error: "API key unauthorized" });
-      }
-
-      // Fallback: try chat/completions if modelId provided
-      if (modelId) {
-        const chatRes = await fetchWithTimeout(`${normalizedBase}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01"
-          },
-          body: JSON.stringify({
-            model: modelId,
-            messages: [{ role: "user", content: "ping" }],
-            max_tokens: 1
-          })
-        });
-        if (chatRes.ok) {
-          return NextResponse.json({ valid: true, method: "chat" });
-        }
-        return NextResponse.json({
-          valid: false,
-          error: getChatErrorMessage(chatRes.status),
-          method: "chat"
-        });
-      }
-
-      return NextResponse.json({ valid: false, error: getModelsErrorMessage(res.status) });
+      if (messagesRes.ok) return NextResponse.json({ valid: true, method: "messages" });
+      return NextResponse.json({
+        valid: false,
+        error: getInferenceErrorMessage(messagesRes.status, "Messages"),
+        method: "messages"
+      });
     }
 
-    // OpenAI Compatible Validation (Default)
-    const modelsUrl = `${baseUrl.replace(/\/$/, "")}/models`;
-    const res = await fetchWithTimeout(modelsUrl, {
-      headers: { "Authorization": `Bearer ${apiKey}` },
-    });
-
-    if (res.ok) return NextResponse.json({ valid: true });
-
-    // Auth errors - no point trying chat fallback
-    if (res.status === 401 || res.status === 403) {
-      return NextResponse.json({ valid: false, error: "API key unauthorized" });
-    }
-
-    // Fallback: try chat/completions if modelId provided
-    if (modelId) {
-      const chatRes = await fetchWithTimeout(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+    // OpenAI-compatible providers are checked by inference with the model the
+    // user selected. /models only proves a key can list models, not that the
+    // selected model can generate a response.
+    const normalizedBase = baseUrl.trim().replace(/\/$/, "");
+    const usesResponsesApi = apiType === "responses";
+    const endpoint = usesResponsesApi ? "Responses" : "Chat Completions";
+    const inferenceRes = await fetchWithTimeout(
+      `${normalizedBase}/${usesResponsesApi ? "responses" : "chat/completions"}`,
+      {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          model: modelId,
-          messages: [{ role: "user", content: "ping" }],
-          max_tokens: 1
-        })
-      });
-      if (chatRes.ok) {
-        return NextResponse.json({ valid: true, method: "chat" });
+        body: JSON.stringify(usesResponsesApi
+          ? { model: selectedModelId, input: "ping", max_output_tokens: 1 }
+          : { model: selectedModelId, messages: [{ role: "user", content: "ping" }], max_tokens: 1 }
+        )
       }
-      return NextResponse.json({
-        valid: false,
-        error: getChatErrorMessage(chatRes.status),
-        method: "chat"
-      });
-    }
+    );
 
-    return NextResponse.json({ valid: false, error: getModelsErrorMessage(res.status) });
+    if (inferenceRes.ok) return NextResponse.json({ valid: true, method: usesResponsesApi ? "responses" : "chat" });
+    return NextResponse.json({
+      valid: false,
+      error: getInferenceErrorMessage(inferenceRes.status, endpoint),
+      method: usesResponsesApi ? "responses" : "chat"
+    });
   } catch (error) {
     const errorMessage = getErrorMessage(error);
     console.error("Error validating provider node:", {

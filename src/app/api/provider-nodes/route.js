@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createProviderNode, getProviderNodes } from "@/models";
+import { createProviderConnection, createProviderNode, getProviderNodes } from "@/models";
 import { OPENAI_COMPATIBLE_PREFIX, ANTHROPIC_COMPATIBLE_PREFIX, CUSTOM_EMBEDDING_PREFIX } from "@/shared/constants/providers";
 import { generateId } from "@/shared/utils";
 
@@ -17,6 +17,38 @@ const CUSTOM_EMBEDDING_DEFAULTS = {
   baseUrl: "https://api.openai.com/v1",
 };
 
+async function createInitialCompatibleConnection(node, apiKey, modelId) {
+  const trimmedKey = typeof apiKey === "string" ? apiKey.trim() : "";
+  const trimmedModelId = typeof modelId === "string" ? modelId.trim() : "";
+
+  // Preserve the node-only API for existing clients, while ensuring the dashboard
+  // never drops a supplied key. A partial credential payload is always invalid.
+  if (!trimmedKey && !trimmedModelId) return null;
+  if (!trimmedKey || !trimmedModelId) {
+    throw new Error("API key and model ID must be supplied together");
+  }
+
+  const providerSpecificData = {
+    prefix: node.prefix,
+    baseUrl: node.baseUrl,
+    nodeName: node.name,
+  };
+  if (node.type === "openai-compatible") {
+    providerSpecificData.apiType = node.apiType;
+  }
+
+  return createProviderConnection({
+    provider: node.id,
+    authType: "apikey",
+    name: `${node.name} API Key`,
+    apiKey: trimmedKey,
+    defaultModel: trimmedModelId,
+    providerSpecificData,
+    isActive: true,
+    testStatus: "unknown",
+  });
+}
+
 // GET /api/provider-nodes - List all provider nodes
 export async function GET() {
   try {
@@ -32,7 +64,7 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { name, prefix, apiType, baseUrl, type } = body;
+    const { name, prefix, apiType, baseUrl, type, apiKey, modelId } = body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
@@ -44,6 +76,13 @@ export async function POST(request) {
 
     // Determine type
     const nodeType = type || "openai-compatible";
+    const isCompatibleNode = nodeType === "openai-compatible" || nodeType === "anthropic-compatible";
+    const hasApiKey = typeof apiKey === "string" && apiKey.trim() !== "";
+    const hasModelId = typeof modelId === "string" && modelId.trim() !== "";
+
+    if (isCompatibleNode && hasApiKey !== hasModelId) {
+      return NextResponse.json({ error: "API key and model ID must be supplied together" }, { status: 400 });
+    }
 
     if (nodeType === "openai-compatible") {
       if (!apiType || !["chat", "responses"].includes(apiType)) {
@@ -58,7 +97,9 @@ export async function POST(request) {
         baseUrl: (baseUrl || OPENAI_COMPATIBLE_DEFAULTS.baseUrl).trim(),
         name: name.trim(),
       });
-      return NextResponse.json({ node }, { status: 201 });
+      const connection = await createInitialCompatibleConnection(node, apiKey, modelId);
+      const result = connection ? { ...connection, apiKey: undefined } : null;
+      return NextResponse.json({ node, connection: result }, { status: 201 });
     }
 
     if (nodeType === "custom-embedding") {
@@ -93,12 +134,17 @@ export async function POST(request) {
         baseUrl: sanitizedBaseUrl,
         name: name.trim(),
       });
-      return NextResponse.json({ node }, { status: 201 });
+      const connection = await createInitialCompatibleConnection(node, apiKey, modelId);
+      const result = connection ? { ...connection, apiKey: undefined } : null;
+      return NextResponse.json({ node, connection: result }, { status: 201 });
     }
 
     return NextResponse.json({ error: "Invalid provider node type" }, { status: 400 });
   } catch (error) {
     console.log("Error creating provider node:", error);
+    if (error.message === "API key and model ID must be supplied together") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json({ error: "Failed to create provider node" }, { status: 500 });
   }
 }
