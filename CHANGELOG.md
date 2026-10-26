@@ -13,6 +13,16 @@
   Connection and the model list probe the relay rather than the official
   endpoint. Leave Base URL blank to keep using the official host.
 
+## Fixes
+- **Codex**: coerce string-typed numeric JSON Schema keywords (`minLength: "1"`)
+  back to numbers before sending tools upstream. Antigravity (and other
+  protojson clients) serialize schema numbers as strings, which the Codex
+  Responses backend rejects with `Invalid schema for function 'send_message':
+  "1" is not of type "integer"` — or the opaque `response protection is
+  unavailable`. Applies to both top-level `tools` and `additional_tools` input
+  items, which previously skipped `normalizeCodexTools` entirely. The
+  Antigravity -> OpenAI translator now applies the same coercion.
+
 # v0.5.69 (2026-09-05)
 
 ## Features

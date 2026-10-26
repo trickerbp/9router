@@ -7,6 +7,7 @@ import {
 } from "../services/oauthCredentialManager.js";
 import { normalizeResponsesInput } from "../translator/formats/responsesApi.js";
 import { fetchImageAsBase64 } from "../translator/concerns/image.js";
+import { coerceToolSchemaNumerics } from "../translator/concerns/schemaCoercion.js";
 import { getModelUpstreamId } from "../config/providerModels.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
 import { peekResponsesError } from "../utils/responsesErrors.js";
@@ -435,6 +436,10 @@ export class CodexExecutor extends BaseExecutor {
     if (!body.input || (Array.isArray(body.input) && body.input.length === 0)) {
       body.input = [{ type: "message", role: "user", content: [{ type: "input_text", text: "..." }] }];
     }
+
+    // Protojson clients (Antigravity, VS Code) send "minLength": "1". Responses
+    // validators need numbers, and additional_tools items skip normalizeCodexTools.
+    coerceToolSchemaNumerics(body);
 
     // Keep system prompts in body.input as role=developer so they stay in the cacheable prefix
     convertSystemToDeveloperRole(body);

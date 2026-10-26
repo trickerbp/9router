@@ -5,6 +5,7 @@ import { encodeDataUri } from "../concerns/image.js";
 import { ROLE, GEMINI_ROLE, OPENAI_BLOCK } from "../schema/index.js";
 import { budgetToEffort } from "../concerns/thinking.js";
 import { collapseTextParts } from "../concerns/message.js";
+import { coerceNumericSchemaKeywords } from "../concerns/schemaCoercion.js";
 
 // Convert Antigravity request to OpenAI format
 // Antigravity body: { project, model, userAgent, requestType, requestId, request: { contents, systemInstruction, tools, toolConfig, generationConfig, sessionId } }
@@ -91,6 +92,9 @@ function normalizeSchemaTypes(schema) {
 
   const result = Array.isArray(schema) ? [...schema] : { ...schema };
 
+  // Antigravity serializes schema numbers through protojson ("minLength": "1").
+  // Downstream OpenAI/Responses validators reject the string form.
+  coerceNumericSchemaKeywords(result);
 
   if (typeof result.type === "string") {
     result.type = result.type.toLowerCase();
